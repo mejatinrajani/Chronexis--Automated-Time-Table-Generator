@@ -14,7 +14,7 @@ interface HistoryRun {
 interface HistoryModalProps {
   open: boolean;
   onClose: () => void;
-  onLoadRun: (data: APISlot[]) => void; // Callback to parent
+  onLoadRun: (data: APISlot[], forcedSlots?: string[]) => void;
 }
 
 const HistoryModal = ({ open, onClose, onLoadRun }: HistoryModalProps) => {
@@ -46,13 +46,17 @@ const HistoryModal = ({ open, onClose, onLoadRun }: HistoryModalProps) => {
   const handleLoad = async (runId: number) => {
     setLoadingId(runId);
     try {
-      // Fetch the actual slots for this run
       const res = await fetch(`http://localhost:8000/api/history/${runId}`);
-      const data: APISlot[] = await res.json();
+      const result = await res.json();
       
-      // Pass data back to parent to render
-      onLoadRun(data);
-      onClose(); // Close modal on success
+      // NEW: Handle the object response
+      const scheduleData: APISlot[] = Array.isArray(result) ? result : result.schedule;
+      const timeSlots: string[] = Array.isArray(result) ? [] : result.time_slots;
+      
+      // Pass BOTH to the parent
+      onLoadRun(scheduleData, timeSlots);
+      
+      onClose();
     } catch (e) {
       console.error("Failed to load run", e);
     } finally {

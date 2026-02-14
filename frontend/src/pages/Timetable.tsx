@@ -7,8 +7,10 @@ import Modal from "@/components/Modal";
 import InputField from "@/components/InputField";
 import ClipboardArea from "@/components/ClipboardArea";
 import DeleteZone from "@/components/DeleteZone"; 
-import HistoryModal from "@/components/HistoryModal"; // NEW COMPONENT
-import { Undo2, Plus, FileSpreadsheet, History } from "lucide-react"; // Added History Icon
+import HistoryModal from "@/components/HistoryModal"; 
+import { Undo2, Plus, FileSpreadsheet, History } from "lucide-react";
+import { ShieldCheck, AlertTriangle, XCircle, CheckCircle2 } from "lucide-react";
+import { validateTimetable, ValidationError } from "@/utils/Validator";
 import { SlotData } from "@/components/DraggableSlot";
 import { exportTimetableToExcel } from "@/utils/excelExport";
 import { mapApiToGrid, APISlot, formatTimeDisplay } from "@/utils/dataMapper";
@@ -44,21 +46,31 @@ const Timetable = () => {
 
   const [history, setHistory] = useState<{ grids: Record<string, GridData>, clipboard: SlotData[] }[]>([]);
 
+  const [validationErrors, setValidationErrors] = useState<ValidationError[] | null>(null);
+
   // --- 1. Fetch Latest Data on Mount ---
   useEffect(() => {
     const fetchSchedule = async () => {
       setLoading(true);
       try {
-        const response = await fetch("http://localhost:8000/api/get-schedule/");
-        const data: APISlot[] = await response.json();
+        const response = await fetch("http://localhost:8000/api/latest/");
+        const result = await response.json();
         
-        console.log("✅ RAW API DATA:", data); 
+        // --- FIX STARTS HERE ---
+        // Handle both legacy (array) and new (object) formats
+        const data: APISlot[] = Array.isArray(result) ? result : result.schedule; 
+        const serverTimeSlots: string[] = Array.isArray(result) ? [] : result.time_slots;
+
+        console.log("✅ API DATA:", data); 
+        console.log("✅ SERVER SLOTS:", serverTimeSlots);
 
         if (Array.isArray(data) && data.length > 0) {
-           processAndLoadData(data);
+           processAndLoadData(data, serverTimeSlots); // Pass slots here
         } else {
             console.warn("⚠️ API returned empty array");
         }
+        // --- FIX ENDS HERE ---
+
       } catch (error) {
         console.error("❌ Failed to fetch schedule:", error);
       } finally {
@@ -70,23 +82,20 @@ const Timetable = () => {
   }, []);
 
   // --- Helper to Process API Data ---
-  const processAndLoadData = (data: APISlot[]) => {
-      // 1. Extract Sections
+  const processAndLoadData = (data: APISlot[], forcedSlots?: string[]) => {
       const uniqueSections = Array.from(new Set(data.map((item) => item.section))).sort();
       
       setSections(uniqueSections);
-      // Only reset active section if current one is invalid
       setActiveSection(prev => uniqueSections.includes(prev) ? prev : uniqueSections[0]);
 
-      // 2. Map Grid & Detect Times
-      const result = mapApiToGrid(data, uniqueSections); 
+      // Pass forcedSlots to the mapper
+      const result = mapApiToGrid(data, uniqueSections, forcedSlots); 
       
       console.log("✅ Restoring Timetable...");
       setAllGrids(result.grids);
       setTimeSlots(result.uniqueTimes);
       setBreakTimes(result.breakTimes);
       
-      // Set default time for the "Add Class" modal
       if (result.uniqueTimes.length > 0) {
         setNewTime(result.uniqueTimes[0]);
       }
@@ -136,6 +145,16 @@ const Timetable = () => {
       return next;
     });
   }, [pushHistory, timeSlots]);
+
+  const handleValidate = () => {
+  const errors = validateTimetable(allGrids);
+  setValidationErrors(errors);
+  
+  // Optional: Auto-scroll to bottom to see results
+  setTimeout(() => {
+      window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
+  }, 100);
+};
 
   const handleDeleteByDrag = useCallback((section: string, day: string, time: string) => {
     pushHistory();
@@ -215,15 +234,18 @@ const Timetable = () => {
   };
 
   // --- History Handler ---
-  const handleHistoryLoad = (data: APISlot[]) => {
-    // We use the same helper function to process history data
-    processAndLoadData(data);
+  const handleHistoryLoad = (data: APISlot[], forcedSlots?: string[]) => {
+    console.log("📜 Loading History with slots:", forcedSlots);
+    
+    // Pass the slots to the processor!
+    processAndLoadData(data, forcedSlots);
+    
     setHistoryModalOpen(false);
   };
 
   return (
     <DashboardLayout title="Timetable">
-      <div className="animate-fade-in space-y-5 pb-20">
+      <div className="animate-fade-in overflow-x-auto space-y-5 pb-20">
         
         {/* Toolbar */}
         <div className="flex flex-wrap items-center w-full gap-3">
@@ -304,6 +326,74 @@ const Timetable = () => {
           }
           onRemoveItem={handleRemoveFromClipboard}
         />
+
+
+        <div className="mt-8 border-t border-border pt-6">
+          <div className="flex items-center justify-between mb-4">
+             <div>
+                <h3 className="text-lg font-semibold text-foreground flex items-center gap-2">
+                   <ShieldCheck className="text-primary" /> Validation
+                </h3>
+                <p className="text-sm text-muted-foreground">Check for faculty clashes, room conflicts, and credit hours.</p>
+             </div>
+             <AppButton onClick={handleValidate} variant="outline" size="lg">
+                Run Validator
+             </AppButton>
+          </div>
+
+          {/* Results Display */}
+          {validationErrors && (
+             <div className="animate-fade-in">
+                {validationErrors.length === 0 ? (
+                   <div className="flex items-center gap-3 rounded-lg border border-green-200 bg-green-50 p-4 text-green-800">
+                      <CheckCircle2 size={24} />
+                      <div>
+                         <p className="font-semibold">No Issues Found!</p>
+                         <p className="text-xs opacity-80">Timetable is valid regarding clashes and credits.</p>
+                      </div>
+                   </div>
+                ) : (
+                   <div className="space-y-3">
+                      <div className="flex items-center gap-2 text-sm font-medium text-red-600 mb-2">
+                         <XCircle size={16} /> Found {validationErrors.length} Issues
+                      </div>
+                      
+                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                         {validationErrors.map((err) => (
+                            <div key={err.id} className={`rounded-md border p-3 shadow-sm ${
+                               err.severity === 'critical' 
+                               ? 'border-red-200 bg-red-50' 
+                               : 'border-amber-200 bg-amber-50'
+                            }`}>
+                               <div className="flex items-start gap-2">
+                                  {err.severity === 'critical' ? (
+                                     <XCircle className="text-red-600 mt-0.5 shrink-0" size={16} />
+                                  ) : (
+                                     <AlertTriangle className="text-amber-600 mt-0.5 shrink-0" size={16} />
+                                  )}
+                                  <div>
+                                     <p className={`text-sm font-bold ${
+                                        err.severity === 'critical' ? 'text-red-800' : 'text-amber-800'
+                                     }`}>
+                                        {err.message}
+                                     </p>
+                                     {err.details?.map((d, i) => (
+                                        <p key={i} className={`text-xs mt-1 ${
+                                           err.severity === 'critical' ? 'text-red-600' : 'text-amber-600'
+                                        }`}>
+                                           {d}
+                                        </p>
+                                     ))}
+                                  </div>
+                               </div>
+                            </div>
+                         ))}
+                      </div>
+                   </div>
+                )}
+             </div>
+          )}
+        </div>
       </div>
 
       {/* Add Class Modal */}

@@ -8,6 +8,7 @@ export interface SlotData {
   teacher: string;
   room?: string;
   credits?: number;
+  duration?: number;
 }
 
 interface DraggableSlotProps {
