@@ -1,0 +1,102 @@
+# -----------------------------
+# Python
+# -----------------------------
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+.venv/
+env.bak/
+venv.bak/
+
+# -----------------------------
+# Django
+# -----------------------------
+*.log
+local_settings.py
+db.sqlite3
+db.sqlite3-journal
+media/
+staticfiles/
+*.pot
+
+# Django migrations (optional — remove if you want to track them)
+# */migrations/
+# !*/migrations/__init__.py
+
+# -----------------------------
+# FastAPI / General Backend
+# -----------------------------
+*.log
+logs/
+*.pid
+*.seed
+*.pid.lock
+
+# -----------------------------
+# Environment Variables
+# -----------------------------
+.env
+.env.*
+*.env
+
+# -----------------------------
+# IDE / Editor
+# -----------------------------
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# -----------------------------
+# Testing / Coverage
+# -----------------------------
+htmlcov/
+.coverage
+.coverage.*
+.cache
+.pytest_cache/
+
+# -----------------------------
+# Build / Distribution
+# -----------------------------
+build/
+dist/
+*.egg-info/
+.eggs/
+*.egg
+
+# -----------------------------
+# OS Files
+# -----------------------------
+.DS_Store
+Thumbs.db
+
+# -----------------------------
+# Jupyter Notebooks (if used)
+# -----------------------------
+.ipynb_checkpoints/
+
+# -----------------------------
+# Static / Uploads (optional)
+# -----------------------------
+uploads/
+mediafiles/
+
+# -----------------------------
+# Type checkers / linters
+# -----------------------------
+.mypy_cache/
+.ruff_cache/
+.pyre/
+
+# -----------------------------
+# Docker (if used)
+# -----------------------------
+*.env.docker
+docker-compose.override.yml

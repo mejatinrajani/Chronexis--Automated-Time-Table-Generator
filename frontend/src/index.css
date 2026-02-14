@@ -1,0 +1,149 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 0 0% 5%;
+
+    --card: 0 0% 98%;
+    --card-foreground: 0 0% 5%;
+
+    --popover: 0 0% 98%;
+    --popover-foreground: 0 0% 5%;
+
+    --primary: 0 0% 0%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 0 0% 95%;
+    --secondary-foreground: 0 0% 15%;
+
+    --muted: 0 0% 93%;
+    --muted-foreground: 0 0% 45%;
+
+    --accent: 0 0% 92%;
+    --accent-foreground: 0 0% 5%;
+
+    --destructive: 0 0% 35%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 0 0% 88%;
+    --input: 0 0% 88%;
+    --ring: 0 0% 60%;
+
+    --radius: 0px;
+
+    --sidebar-background: 0 0% 97%;
+    --sidebar-foreground: 0 0% 40%;
+    --sidebar-primary: 0 0% 0%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 0 0% 92%;
+    --sidebar-accent-foreground: 0 0% 5%;
+    --sidebar-border: 0 0% 90%;
+    --sidebar-ring: 0 0% 60%;
+
+    /* Custom tokens */
+    --surface-elevated: 0 0% 96%;
+    --glow: 0 0% 0% / 0.08;
+    --drag-shadow: 0 20px 60px -10px hsl(0 0% 0% / 0.15);
+    --drop-highlight: 0 0% 90%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-family: 'Inter', system-ui, sans-serif;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    font-family: 'Inter', system-ui, sans-serif;
+    @apply font-semibold tracking-tight;
+  }
+
+  code, pre {
+    font-family: 'JetBrains Mono', monospace;
+  }
+}
+
+@layer utilities {
+  .animate-fade-in {
+    animation: fade-in 0.4s ease-out forwards;
+  }
+
+  .animate-slide-up {
+    animation: slide-up 0.4s ease-out forwards;
+  }
+
+  .animate-slide-in-left {
+    animation: slide-in-left 0.3s ease-out forwards;
+  }
+
+  .animate-slide-in-right {
+    animation: slide-in-right 0.3s ease-out forwards;
+  }
+
+  .hover-sharp-to-round {
+    @apply transition-all duration-200;
+    border-radius: 0px;
+  }
+  .hover-sharp-to-round:hover {
+    border-radius: 6px;
+  }
+
+  .cell-hover {
+    @apply transition-all duration-200;
+  }
+  .cell-hover:hover {
+    background: hsl(var(--accent));
+  }
+
+  .focus-glow {
+    @apply transition-shadow duration-200;
+  }
+  .focus-glow:focus {
+    box-shadow: 0 0 0 2px hsl(var(--glow));
+  }
+
+  .drag-preview {
+    transform: scale(1.05);
+    box-shadow: var(--drag-shadow);
+    z-index: 50;
+  }
+
+  .drop-zone-active {
+    background: hsl(var(--drop-highlight));
+    border: 1px dashed hsl(0 0% 30%);
+  }
+
+  .skeleton-pulse {
+    @apply animate-pulse bg-muted rounded;
+  }
+}
+
+@keyframes fade-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes slide-up {
+  from { opacity: 0; transform: translateY(20px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes slide-in-left {
+  from { opacity: 0; transform: translateX(-20px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes slide-in-right {
+  from { opacity: 0; transform: translateX(20px); }
+  to { opacity: 1; transform: translateX(0); }
+}

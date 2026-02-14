@@ -1,0 +1,6 @@
+fastapi
+uvicorn
+ortools
+pandas
+supabase
+python-dotenv
