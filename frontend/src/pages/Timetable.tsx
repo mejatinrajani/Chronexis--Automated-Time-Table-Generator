@@ -9,7 +9,7 @@ import ClipboardArea from "@/components/ClipboardArea";
 import DeleteZone from "@/components/DeleteZone"; 
 import HistoryModal from "@/components/HistoryModal"; 
 import { Undo2, Plus, FileSpreadsheet, History } from "lucide-react";
-import { ShieldCheck, AlertTriangle, XCircle, CheckCircle2 } from "lucide-react";
+import { ShieldCheck, AlertTriangle, XCircle, CheckCircle2, Activity } from "lucide-react";
 import { validateTimetable, ValidationError } from "@/utils/Validator";
 import { SlotData } from "@/components/DraggableSlot";
 import { exportTimetableToExcel } from "@/utils/excelExport";
@@ -22,19 +22,18 @@ type GridData = Record<string, Record<string, SlotData | null>>;
 let nextId = 100;
 
 const Timetable = () => {
-  // --- State ---
   const [sections, setSections] = useState<string[]>([]);
   const [activeSection, setActiveSection] = useState("");
   const [loading, setLoading] = useState(false);
   const [allGrids, setAllGrids] = useState<Record<string, GridData>>({});
   
-  // Dynamic Time & Break Slots
+
   const [timeSlots, setTimeSlots] = useState<string[]>([]);
   const [breakTimes, setBreakTimes] = useState<string[]>([]); 
 
   const [clipboardItems, setClipboardItems] = useState<SlotData[]>([]);
   const [addModalOpen, setAddModalOpen] = useState(false);
-  const [historyModalOpen, setHistoryModalOpen] = useState(false); // NEW STATE
+  const [historyModalOpen, setHistoryModalOpen] = useState(false);
   
   // Form State
   const [newSubject, setNewSubject] = useState("");
@@ -56,8 +55,6 @@ const Timetable = () => {
         const response = await fetch("http://localhost:8000/api/latest/");
         const result = await response.json();
         
-        // --- FIX STARTS HERE ---
-        // Handle both legacy (array) and new (object) formats
         const data: APISlot[] = Array.isArray(result) ? result : result.schedule; 
         const serverTimeSlots: string[] = Array.isArray(result) ? [] : result.time_slots;
 
@@ -65,12 +62,10 @@ const Timetable = () => {
         console.log("✅ SERVER SLOTS:", serverTimeSlots);
 
         if (Array.isArray(data) && data.length > 0) {
-           processAndLoadData(data, serverTimeSlots); // Pass slots here
+           processAndLoadData(data, serverTimeSlots);
         } else {
             console.warn("⚠️ API returned empty array");
         }
-        // --- FIX ENDS HERE ---
-
       } catch (error) {
         console.error("❌ Failed to fetch schedule:", error);
       } finally {
@@ -81,6 +76,14 @@ const Timetable = () => {
     fetchSchedule();
   }, []);
 
+  // --- 2. LIVE VALIDATOR (The New Feature) ---
+  useEffect(() => {
+    if (Object.keys(allGrids).length > 0) {
+        const errors = validateTimetable(allGrids);
+        setValidationErrors(errors);
+    }
+  }, [allGrids]); // <--- This runs whenever grid changes!
+
   // --- Helper to Process API Data ---
   const processAndLoadData = (data: APISlot[], forcedSlots?: string[]) => {
       const uniqueSections = Array.from(new Set(data.map((item) => item.section))).sort();
@@ -88,7 +91,6 @@ const Timetable = () => {
       setSections(uniqueSections);
       setActiveSection(prev => uniqueSections.includes(prev) ? prev : uniqueSections[0]);
 
-      // Pass forcedSlots to the mapper
       const result = mapApiToGrid(data, uniqueSections, forcedSlots); 
       
       console.log("✅ Restoring Timetable...");
@@ -145,16 +147,6 @@ const Timetable = () => {
       return next;
     });
   }, [pushHistory, timeSlots]);
-
-  const handleValidate = () => {
-  const errors = validateTimetable(allGrids);
-  setValidationErrors(errors);
-  
-  // Optional: Auto-scroll to bottom to see results
-  setTimeout(() => {
-      window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
-  }, 100);
-};
 
   const handleDeleteByDrag = useCallback((section: string, day: string, time: string) => {
     pushHistory();
@@ -233,19 +225,14 @@ const Timetable = () => {
     exportTimetableToExcel(allGrids);
   };
 
-  // --- History Handler ---
   const handleHistoryLoad = (data: APISlot[], forcedSlots?: string[]) => {
-    console.log("📜 Loading History with slots:", forcedSlots);
-    
-    // Pass the slots to the processor!
     processAndLoadData(data, forcedSlots);
-    
     setHistoryModalOpen(false);
   };
 
   return (
     <DashboardLayout title="Timetable">
-      <div className="animate-fade-in overflow-x-auto space-y-5 pb-20">
+      <div className="animate-fade-in space-y-5 pb-20">
         
         {/* Toolbar */}
         <div className="flex flex-wrap items-center w-full gap-3">
@@ -263,7 +250,6 @@ const Timetable = () => {
             
             <div className="h-6 w-px bg-border mx-1" />
 
-            {/* NEW: History Button */}
             <AppButton 
               variant="ghost" 
               size="sm" 
@@ -327,58 +313,59 @@ const Timetable = () => {
           onRemoveItem={handleRemoveFromClipboard}
         />
 
-
-        <div className="mt-8 border-t border-border pt-6">
+        {/* --- LIVE VALIDATOR SECTION --- */}
+        <div className="mt-8 border-t border-border pt-6 transition-all duration-600">
           <div className="flex items-center justify-between mb-4">
              <div>
-                <h3 className="text-lg font-semibold text-foreground flex items-center gap-2">
-                   <ShieldCheck className="text-primary" /> Validation
+                <h3 className="text-[25px] font-semibold text-foreground flex items-center gap-2">
+                   <ShieldCheck size={30} className="text-primary" /> Live Validator
+                   <span className="flex h-4 w-4 relative ml-1">
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-80"></span>
+                      <span className="relative inline-flex rounded-full h-4 w-4 bg-green-500"></span>
+                   </span>
                 </h3>
-                <p className="text-sm text-muted-foreground">Check for faculty clashes, room conflicts, and credit hours.</p>
+                <p className="text-lg text-muted-foreground">Monitoring clashes and credit hours in real-time.</p>
              </div>
-             <AppButton onClick={handleValidate} variant="outline" size="lg">
-                Run Validator
-             </AppButton>
           </div>
 
           {/* Results Display */}
           {validationErrors && (
              <div className="animate-fade-in">
                 {validationErrors.length === 0 ? (
-                   <div className="flex items-center gap-3 rounded-lg border border-green-200 bg-green-50 p-4 text-green-800">
-                      <CheckCircle2 size={24} />
+                   <div className="flex items-center gap-3 rounded-lg border border-green-200 bg-green-50 p-4 text-green-800 transition-all">
+                      <CheckCircle2 size={32} />
                       <div>
-                         <p className="font-semibold">No Issues Found!</p>
-                         <p className="text-xs opacity-80">Timetable is valid regarding clashes and credits.</p>
+                         <p className="font-semibold text-[20px]">All Systems Nominal</p>
+                         <p className="text-lg opacity-80">No faculty clashes, room conflicts, or credit mismatches detected.</p>
                       </div>
                    </div>
                 ) : (
                    <div className="space-y-3">
-                      <div className="flex items-center gap-2 text-sm font-medium text-red-600 mb-2">
-                         <XCircle size={16} /> Found {validationErrors.length} Issues
+                      <div className="flex items-center gap-2 text-lg font-medium text-red-600 mb-2 animate-pulse">
+                         <Activity size={16} /> Detected {validationErrors.length} Issues
                       </div>
                       
                       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
                          {validationErrors.map((err) => (
-                            <div key={err.id} className={`rounded-md border p-3 shadow-sm ${
+                            <div key={err.id} className={`rounded-md border p-3 shadow-sm transition-all duration-300 ${
                                err.severity === 'critical' 
-                               ? 'border-red-200 bg-red-50' 
-                               : 'border-amber-200 bg-amber-50'
+                               ? 'border-red-200 bg-red-50 hover:bg-red-100' 
+                               : 'border-amber-200 bg-amber-50 hover:bg-amber-100'
                             }`}>
                                <div className="flex items-start gap-2">
                                   {err.severity === 'critical' ? (
-                                     <XCircle className="text-red-600 mt-0.5 shrink-0" size={16} />
+                                     <XCircle className="text-red-600 mt-0.5 shrink-0" size={25} />
                                   ) : (
-                                     <AlertTriangle className="text-amber-600 mt-0.5 shrink-0" size={16} />
+                                     <AlertTriangle className="text-amber-600 mt-0.5 shrink-0" size={25} />
                                   )}
                                   <div>
-                                     <p className={`text-sm font-bold ${
+                                     <p className={`text-lg font-bold ${
                                         err.severity === 'critical' ? 'text-red-800' : 'text-amber-800'
                                      }`}>
                                         {err.message}
                                      </p>
                                      {err.details?.map((d, i) => (
-                                        <p key={i} className={`text-xs mt-1 ${
+                                        <p key={i} className={`text-lg mt-1 ${
                                            err.severity === 'critical' ? 'text-red-600' : 'text-amber-600'
                                         }`}>
                                            {d}

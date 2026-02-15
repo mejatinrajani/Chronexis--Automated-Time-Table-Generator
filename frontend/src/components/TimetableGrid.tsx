@@ -55,7 +55,7 @@ const TimetableGrid = ({ section, grid, timeSlots, breakTimes = [], onGridChange
 
   return (
     <div className="overflow-x-hidden pb-4">
-      <table className="w-[2000px] border-collapse">
+      <table className="w-[2100px] border-collapse">
         <thead>
           <tr>
             <th className="border border-border bg-secondary p-3 text-left text-[20px] font-medium uppercase tracking-widest text-muted-foreground w-24 sticky left-0 z-10 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)]">
