@@ -2,7 +2,7 @@ import { useState, useCallback } from "react";
 import DraggableSlot, { SlotData } from "./DraggableSlot";
 import { cn } from "@/lib/utils";
 import { globalDragData } from "@/utils/dragState";
-import { formatSlotRange } from "@/utils/dataMapper"; // Updated import
+import { formatSlotRange } from "@/utils/dataMapper"; 
 
 const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"];
 
@@ -12,7 +12,7 @@ interface TimetableGridProps {
   section: string;
   grid: GridData;
   timeSlots: string[];
-  breakTimes?: string[]; // New prop for lunch slots
+  breakTimes?: string[]; 
   onGridChange: (grid: GridData) => void;
   onDelete: (id: string) => void;
   onDropFromClipboard: (slot: SlotData, day: string, time: string, clipboardIndex: number) => void; 
@@ -84,9 +84,8 @@ const TimetableGrid = ({ section, grid, timeSlots, breakTimes = [], onGridChange
               {timeSlots.map((time) => {
                 const isBreak = breakTimes.includes(time);
                 
-                // LUNCH BREAK LOGIC
                 if (isBreak) {
-                    // Only render the cell for the FIRST row (Monday)
+                
                     if (dayIndex === 0) {
                         return (
                             <td 
@@ -102,11 +101,9 @@ const TimetableGrid = ({ section, grid, timeSlots, breakTimes = [], onGridChange
                             </td>
                         );
                     }
-                    // For other days, render nothing (because the first one spans down)
                     return null;
                 }
 
-                // NORMAL SLOT LOGIC
                 const cellKey = `${day}-${time}`;
                 const slot = grid[day]?.[time] || null;
                 const isOver = dragOver === cellKey;

@@ -4,7 +4,6 @@ from dataclasses import dataclass
 import random, string
 from datetime import time, timedelta, datetime
 
-# --- 1. Data Structures ---
 
 @dataclass
 class Slot:
@@ -44,7 +43,6 @@ class MinimalData:
     def num_slots(self):
         return len(self.slots)
 
-# --- 2. Generators ---
 
 def calculate_lunch_break(shift_start: time, shift_end: time, duration_minutes: int = 60) -> List[Tuple[time, time]]:
     dummy_date = datetime(2000, 1, 1)
@@ -111,13 +109,48 @@ def generate_time_slots(
 
     return all_slots
 
-# --- 3. Adapter for Custom Data ---
+
+
+def check_feasibility(data: MinimalData, available_slots_per_week: int):
+    """
+    Performs quick math checks to see if a solution is even possible.
+    Returns: (is_feasible: bool, reason: str)
+    """
+
+    for sec in data.sections:
+        total_credits = sum(data.hours[sec].values())
+        if total_credits > available_slots_per_week:
+            return False, f"Impossible Workload: Section '{sec}' needs {total_credits} slots, but only {available_slots_per_week} are available/week."
+
+
+    subject_demand = {}
+    for sec in data.sections:
+        for sub, credits in data.hours[sec].items():
+            subject_demand[sub] = subject_demand.get(sub, 0) + credits
+
+    teacher_load = {}
+    for sub, total_needed in subject_demand.items():
+        teachers = data.competencies.get(sub, [])
+        if not teachers:
+            return False, f"Missing Faculty: Subject '{sub}' has no assigned faculty."
+        
+        capacity_per_teacher = available_slots_per_week
+        total_capacity = len(teachers) * capacity_per_teacher
+        
+        if total_needed > total_capacity:
+            return False, f"Faculty Overload: Subject '{sub}' needs {total_needed} slots (across all sections), but the {len(teachers)} teacher(s) only have {total_capacity} slots combined."
+
+    total_slots_needed = sum(subject_demand.values())
+    total_room_slots = len(data.rooms) * available_slots_per_week
+    
+    if total_slots_needed > total_room_slots:
+        return False, f"Room Shortage: Total classes need {total_slots_needed} slots, but rooms only support {total_room_slots} slots."
+
+    return True, "Math looks okay."
+
 
 def solve_custom_timetable(json_data: dict):
-    """
-    Adapts the JSON payload from frontend to the OR-Tools Solver Logic.
-    """
-    # 1. Time Setup
+    
     s_h, s_m = map(int, json_data["start_time"].split(":"))
     e_h, e_m = map(int, json_data["end_time"].split(":"))
     shift_start = time(s_h, s_m)
@@ -132,15 +165,13 @@ def solve_custom_timetable(json_data: dict):
         slot_duration_minutes=json_data["duration"],
         break_periods=lunch
     )
-
-    # 2. Extract Data
+    
     sections = json_data["sections"]
-    
     subjects = [s["name"] for s in json_data["subjects"]]
-    subject_types = {s["name"]: ("LAB" if s["is_lab"] else "THEORY") for s in json_data["subjects"]}
-    subject_durations = {s["name"]: (2 if s["is_lab"] else 1) for s in json_data["subjects"]}
     
-    # 3. Faculty & Competencies
+    subject_types = {s["name"]: ("LAB" if s.get("is_lab", False) else "THEORY") for s in json_data["subjects"]}
+    subject_durations = {s["name"]: (2 if s.get("is_lab", False) else 1) for s in json_data["subjects"]}
+    
     faculty_list = [f["name"] for f in json_data["faculty"]]
     competencies = {sub: [] for sub in subjects}
     
@@ -149,19 +180,15 @@ def solve_custom_timetable(json_data: dict):
             if sub in competencies:
                 competencies[sub].append(fac["name"])
 
-    # 4. Rooms
     rooms = []
     room_types = {}
-    
     for r_block in json_data["rooms"]:
         for r_num in range(r_block["start"], r_block["end"] + 1):
             room_name = f"{r_block['block']}-{r_num}"
             rooms.append(room_name)
-            # Simple heuristic for room types
             r_type = "LAB" if "LAB" in r_block["block"].upper() else "THEORY"
             room_types[room_name] = r_type
 
-    # 5. Hours/Load
     user_hours = {}
     for sec in sections:
         credits = {}
@@ -169,7 +196,6 @@ def solve_custom_timetable(json_data: dict):
             credits[sub_data["name"]] = sub_data["credits"]
         user_hours[sec] = credits
 
-    # 6. Build Data Object
     data = MinimalData(
         sections=sections, subjects=subjects, slots=slots,
         faculty=faculty_list, rooms=rooms, room_types=room_types,
@@ -178,14 +204,19 @@ def solve_custom_timetable(json_data: dict):
         scheduling_style="COMPACT"
     )
 
+    print("\n Running Feasibility Checks...")
+    is_possible, reason = check_feasibility(data, len(slots) // 5 * 5) 
+    if not is_possible:
+        print(f" Feasibility Check Failed: {reason}")
+        return []
+    print("Math checks out. Starting Solver...")
+
     return run_solver_internal(data)
 
-# --- 4. SOLVER LOGIC ---
 
 def run_solver_internal(data: MinimalData):
     model = cp_model.CpModel()
     
-    # Variables
     assign = {}      
     is_start = {}    
     assign_room = {} 
@@ -195,11 +226,9 @@ def run_solver_internal(data: MinimalData):
     for idx, s in enumerate(data.slots):
         slots_by_day.setdefault(s.day_index, []).append(idx)
 
-    # --- 1. Variable Creation ---
     for sec in data.sections:
         for sub in data.hours[sec].keys():
             qualified = data.competencies.get(sub, [])
-            # Allow fallback if no faculty (prevents crash, but might be unsolvable)
             if not qualified: 
                 qualified = ["TBA"]
             
@@ -208,7 +237,6 @@ def run_solver_internal(data: MinimalData):
             model.Add(sum(fac_assign[(sec, sub, fac)] for fac in qualified) == 1)
 
             sub_type = data.subject_types.get(sub, "THEORY")
-            # If no specific room type found, assume THEORY rooms are valid
             valid_rooms = [r for r in data.rooms if data.room_types.get(r, "THEORY") == sub_type]
             if not valid_rooms: valid_rooms = ["TBA"]
 
@@ -221,16 +249,12 @@ def run_solver_internal(data: MinimalData):
                 
                 model.Add(assign[(sec, sub, s_idx)] == sum(assign_room[(sec, sub, r, s_idx)] for r in valid_rooms))
 
-    # --- 2. Hard Constraints ---
-    
-    # Room Clash
     for r in data.rooms:
         for s_idx in range(data.num_slots):
             room_usage = [assign_room[(sec, sub, r, s_idx)] for sec in data.sections 
                           for sub in data.hours[sec].keys() if (sec, sub, r, s_idx) in assign_room]
             if room_usage: model.AddAtMostOne(room_usage)
 
-    # Faculty Clash
     for fac in data.faculty:
         for s_idx in range(data.num_slots):
             fac_usage = []
@@ -243,12 +267,10 @@ def run_solver_internal(data: MinimalData):
                         fac_usage.append(is_busy)
             if fac_usage: model.AddAtMostOne(fac_usage)
 
-    # Section Clash
     for sec in data.sections:
         for s_idx in range(data.num_slots):
             model.AddAtMostOne(assign[(sec, sub, s_idx)] for sub in data.hours[sec].keys())
 
-    # Credit Hours & Duration Logic
     for sec in data.sections:
         for sub, credits in data.hours[sec].items():
             model.Add(sum(is_start[(sec, sub, s)] for s in range(data.num_slots)) == credits)
@@ -263,11 +285,10 @@ def run_solver_internal(data: MinimalData):
                         model.Add(assign[(sec, sub, s)] == is_start[(sec, sub, s)] + is_start[(sec, sub, s-1)])
                 for day_idx, indices in slots_by_day.items():
                     model.Add(is_start[(sec, sub, indices[-1])] == 0)
-            else: # Theory
+            else: 
                 for s in range(data.num_slots):
                     model.Add(assign[(sec, sub, s)] == is_start[(sec, sub, s)])
 
-    # --- 3. Objective Function ---
     obj_vars = []
     
     for sec in data.sections:
@@ -276,24 +297,21 @@ def run_solver_internal(data: MinimalData):
             for s in indices:
                 model.AddMaxEquality(is_occ[s], [assign[(sec, sub, s)] for sub in data.hours[sec].keys()])
             
-            # Penalize late slots slightly to compact schedule
             for i, s_idx in enumerate(indices):
                 obj_vars.append(is_occ[s_idx] * (i * 10)) 
 
     model.Minimize(sum(obj_vars))
 
-    # --- 4. Solve ---
     solver = cp_model.CpSolver()
     solver.parameters.max_time_in_seconds = 300.0 
     solver.parameters.num_search_workers = 8
     
     status = solver.Solve(model)
 
-    # --- 5. Extract Output ---
     output_data = []
 
     if status in [cp_model.OPTIMAL, cp_model.FEASIBLE]:
-        print(f"✅ Solver Status: {solver.StatusName(status)}")
+        print(f"Solver Status: {solver.StatusName(status)}")
         
         for sec in data.sections:
             for sub in data.hours[sec].keys():
@@ -326,12 +344,11 @@ def run_solver_internal(data: MinimalData):
                             "teacher": assigned_prof,
                             "room": assigned_room,
                             
-                            # --- CRITICAL KEYS FOR DB & VALIDATOR ---
-                            "credits": data.hours[sec].get(sub, 3),        # Required by Database
-                            "duration": data.subject_durations.get(sub, 1) # Required by Validator
+                            "credits": data.hours[sec].get(sub, 3),        
+                            "duration": data.subject_durations.get(sub, 1) 
                         })
     else:
-        print("❌ No feasible solution found.")
+        print(" No feasible solution found.")
         return []
 
     return output_data

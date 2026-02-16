@@ -11,6 +11,7 @@ import Timetable from "./pages/Timetable";
 import Generate from "./pages/Generate";
 import Profile from "./pages/Profile";
 import TeacherTimetable from "./pages/TeacherTimetable";
+import GenerateTimetableUsingExcel from "./pages/GenerateTimeTableUsingExcel";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -29,6 +30,7 @@ const App = () => (
           <Route path="/student-timetable" element={<Timetable />} />
           <Route path="/teacher-timetable" element={<TeacherTimetable />} />
           <Route path="/generate" element={<Generate />} />
+          <Route path="/generate-with-excel" element={<GenerateTimetableUsingExcel />} />
           <Route path="/profile" element={<Profile />} />
           <Route path="*" element={<NotFound />} />
         </Routes>

@@ -26,16 +26,14 @@ const Timetable = () => {
   const [activeSection, setActiveSection] = useState("");
   const [loading, setLoading] = useState(false);
   const [allGrids, setAllGrids] = useState<Record<string, GridData>>({});
-  
 
   const [timeSlots, setTimeSlots] = useState<string[]>([]);
-  const [breakTimes, setBreakTimes] = useState<string[]>([]); 
+  const [breakTimes, setBreakTimes] = useState<string[]>([]);
 
   const [clipboardItems, setClipboardItems] = useState<SlotData[]>([]);
   const [addModalOpen, setAddModalOpen] = useState(false);
   const [historyModalOpen, setHistoryModalOpen] = useState(false);
-  
-  // Form State
+
   const [newSubject, setNewSubject] = useState("");
   const [newTeacher, setNewTeacher] = useState("");
   const [newRoom, setNewRoom] = useState("");
@@ -47,7 +45,6 @@ const Timetable = () => {
 
   const [validationErrors, setValidationErrors] = useState<ValidationError[] | null>(null);
 
-  // --- 1. Fetch Latest Data on Mount ---
   useEffect(() => {
     const fetchSchedule = async () => {
       setLoading(true);
@@ -76,15 +73,13 @@ const Timetable = () => {
     fetchSchedule();
   }, []);
 
-  // --- 2. LIVE VALIDATOR (The New Feature) ---
   useEffect(() => {
     if (Object.keys(allGrids).length > 0) {
         const errors = validateTimetable(allGrids);
         setValidationErrors(errors);
     }
-  }, [allGrids]); // <--- This runs whenever grid changes!
+  }, [allGrids]); 
 
-  // --- Helper to Process API Data ---
   const processAndLoadData = (data: APISlot[], forcedSlots?: string[]) => {
       const uniqueSections = Array.from(new Set(data.map((item) => item.section))).sort();
       
@@ -120,8 +115,6 @@ const Timetable = () => {
     setClipboardItems(prev.clipboard);
     setHistory(h => h.slice(0, -1));
   };
-
-  // --- Handlers ---
 
   const handleGridChange = useCallback((section: string, newGrid: GridData) => {
     pushHistory();
@@ -222,7 +215,7 @@ const Timetable = () => {
   };
 
   const handleExportExcel = () => {
-    exportTimetableToExcel(allGrids);
+    exportTimetableToExcel(allGrids, timeSlots, "Student's_Schedules");
   };
 
   const handleHistoryLoad = (data: APISlot[], forcedSlots?: string[]) => {
@@ -313,7 +306,6 @@ const Timetable = () => {
           onRemoveItem={handleRemoveFromClipboard}
         />
 
-        {/* --- LIVE VALIDATOR SECTION --- */}
         <div className="mt-8 border-t border-border pt-6 transition-all duration-600">
           <div className="flex items-center justify-between mb-4">
              <div>
@@ -328,7 +320,6 @@ const Timetable = () => {
              </div>
           </div>
 
-          {/* Results Display */}
           {validationErrors && (
              <div className="animate-fade-in">
                 {validationErrors.length === 0 ? (
@@ -383,7 +374,6 @@ const Timetable = () => {
         </div>
       </div>
 
-      {/* Add Class Modal */}
       <Modal
         open={addModalOpen}
         onClose={() => setAddModalOpen(false)}
@@ -427,7 +417,6 @@ const Timetable = () => {
         </div>
       </Modal>
 
-      {/* History Modal */}
       <HistoryModal 
         open={historyModalOpen} 
         onClose={() => setHistoryModalOpen(false)}
