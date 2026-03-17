@@ -126,6 +126,9 @@ def check_feasibility(data: MinimalData, available_slots_per_week: int):
     return True, "Math looks okay."
 
 def run_solver_internal(data: MinimalData) -> List[dict]:
+    from ortools.sat.python import cp_model
+    import collections
+
     model = cp_model.CpModel()
     solver = cp_model.CpSolver()
 
@@ -138,20 +141,21 @@ def run_solver_internal(data: MinimalData) -> List[dict]:
 
     # 🧠 Precompute
     slot_to_day = [s.day_index for s in data.slots]
+    day_to_slots = collections.defaultdict(list)
+    for i, s in enumerate(data.slots):
+        day_to_slots[s.day_index].append(i)
 
     # 🧾 Build instances
     instances = []
     for sec in data.sections:
         for sub, count in data.hours[sec].items():
             dur = data.subject_durations.get(sub, 1)
-
             for _ in range(count):
                 instances.append({
                     "sec": sec,
                     "sub": sub,
                     "dur": dur,
-                    "credits": 1,
-                    "total_credits": count,
+                    "credits": data.hours[sec][sub]
                 })
 
     print(f"Instances: {len(instances)} | Slots: {num_slots}")
@@ -172,16 +176,11 @@ def run_solver_internal(data: MinimalData) -> List[dict]:
 
             # LAB: strict consecutive slots
             if dur == 2:
-                slot1 = data.slots[s]
-                slot2 = data.slots[s + 1]
-
-                if slot1.day_index != slot2.day_index:
+                if s + 1 >= num_slots:
                     continue
-
-                if slot2.slot_index != slot1.slot_index + 1:
+                if slot_to_day[s] != slot_to_day[s + 1]:
                     continue
-
-                if slot1.end_time != slot2.start_time:
+                if data.slots[s + 1].slot_index != data.slots[s].slot_index + 1:
                     continue
 
             valid_starts.append(s)
@@ -193,27 +192,18 @@ def run_solver_internal(data: MinimalData) -> List[dict]:
             cp_model.Domain.FromValues(valid_starts),
             f"start_{i}"
         )
-
         interval = model.NewIntervalVar(start, dur, start + dur, f"interval_{i}")
 
         starts.append(start)
         intervals.append(interval)
 
-    # 👨‍🏫 Teacher assignment (FIXED)
-    teacher_vars = []
-
-    for i, inst in enumerate(instances):
-        teachers = data.competencies.get(inst["sub"], [])
+    # 👨‍🏫 Teacher assignment (simple for now)
+    subject_teacher = {}
+    for sub in data.subjects:
+        teachers = data.competencies.get(sub, [])
         if not teachers:
-            raise ValueError(f"No teacher for {inst['sub']}")
-
-        teacher_indices = [data.faculty.index(t) for t in teachers]
-
-        t_var = model.NewIntVarFromDomain(
-            cp_model.Domain.FromValues(teacher_indices),
-            f"teacher_{i}"
-        )
-        teacher_vars.append(t_var)
+            raise ValueError(f"No teacher for {sub}")
+        subject_teacher[sub] = teachers[0]
 
     # 🏫 Rooms
     room_list = data.rooms
@@ -245,30 +235,15 @@ def run_solver_internal(data: MinimalData) -> List[dict]:
         ])
 
     # Teacher no overlap
-    for t_idx in range(len(data.faculty)):
-        teacher_intervals = []
-
-        for i in range(len(instances)):
-            is_t = model.NewBoolVar(f"is_teacher_{i}_{t_idx}")
-
-            model.Add(teacher_vars[i] == t_idx).OnlyEnforceIf(is_t)
-            model.Add(teacher_vars[i] != t_idx).OnlyEnforceIf(is_t.Not())
-
-            opt = model.NewOptionalIntervalVar(
-                starts[i],
-                instances[i]["dur"],
-                starts[i] + instances[i]["dur"],
-                is_t,
-                f"teacher_interval_{i}_{t_idx}"
-            )
-            teacher_intervals.append(opt)
-
-        model.AddNoOverlap(teacher_intervals)
+    for teacher in data.faculty:
+        model.AddNoOverlap([
+            intervals[i] for i, inst in enumerate(instances)
+            if subject_teacher[inst["sub"]] == teacher
+        ])
 
     # Room no overlap
     for r in range(len(room_list)):
         room_intervals = []
-
         for i in range(len(instances)):
             is_r = model.NewBoolVar(f"is_r_{i}_{r}")
 
@@ -286,17 +261,32 @@ def run_solver_internal(data: MinimalData) -> List[dict]:
 
         model.AddNoOverlap(room_intervals)
 
-    # 🎯 Objective (compact + spread)
+    # 🚫 SUBJECT CLUSTER PREVENTION (CRITICAL FIX)
     penalties = []
 
-    # Prefer earlier slots (compact schedule)
-    for i in range(len(instances)):
-        penalties.append(starts[i])
+    for sec in data.sections:
+        for sub in data.subjects:
+            sub_idx = [
+                i for i, inst in enumerate(instances)
+                if inst["sec"] == sec and inst["sub"] == sub
+            ]
 
-    model.Minimize(sum(penalties))
+            for i in range(len(sub_idx)):
+                for j in range(i + 1, len(sub_idx)):
+                    a = sub_idx[i]
+                    b = sub_idx[j]
 
+                    diff = model.NewIntVar(-num_slots, num_slots, f"diff_{a}_{b}")
+                    model.Add(diff == starts[b] - starts[a])
+
+                    too_close = model.NewBoolVar(f"close_{a}_{b}")
+                    model.Add(diff <= 1).OnlyEnforceIf(too_close)
+
+                    penalties.append(too_close * 50)
+
+    # 🎯 COMPACT TIMETABLE
     for i in range(len(instances)):
-        penalties.append(starts[i])
+        penalties.append(starts[i] * 2)
 
     model.Minimize(sum(penalties))
 
@@ -311,23 +301,19 @@ def run_solver_internal(data: MinimalData) -> List[dict]:
 
     # 📤 Output
     output = []
-
     for i, inst in enumerate(instances):
         s = solver.Value(starts[i])
-        start_slot = data.slots[s]
-        end_slot = data.slots[s + inst["dur"] - 1]
+        slot = data.slots[s]
 
         output.append({
             "section": inst["sec"],
             "subject": inst["sub"],
-            "day": start_slot.day_name,
-            "start_time": start_slot.start_time.strftime("%H:%M"),
-            "end_time": end_slot.end_time.strftime("%H:%M"),
-            "teacher": data.faculty[solver.Value(teacher_vars[i])],
+            "day": slot.day_name,
+            "time": slot.start_time.strftime("%H:%M"),
+            "teacher": subject_teacher[inst["sub"]],
             "room": data.rooms[solver.Value(room_vars[i])],
             "duration": inst["dur"],
-            "credits": inst["credits"],
-            "total_credits": inst["total_credits"]
+            "credits": inst["credits"]
         })
 
     return output

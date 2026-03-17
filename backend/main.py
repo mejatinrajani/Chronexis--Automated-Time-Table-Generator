@@ -49,7 +49,7 @@ def get_solver_slots(start_str: str, end_str: str, duration: int) -> List[str]:
         e_h, e_m = map(int, end_str.split(":"))
         shift_start = time(s_h, s_m)
         shift_end = time(e_h, e_m)
-        lunch_breaks = solver_logic.calculate_lunch_break(shift_start, shift_end)
+        lunch_breaks = [solver_logic.calculate_lunch_break(shift_start, shift_end)]
         slots = solver_logic.generate_time_slots(
             working_days=[0], 
             day_names=["Mon"],
@@ -94,19 +94,23 @@ def generate_schedule(payload: GeneratePayload):
                 "run_id": new_run_id,
                 "section": item["section"],
                 "day": item["day"],
-                "time": item["time"],
+                "start_time": item["start_time"],  
+                "end_time": item["end_time"],
                 "subject": item["subject"],
                 "teacher": item["teacher"],
                 "room": item["room"],
                 "credits": item["credits"],
-                "duration": item.get("duration", 1) 
+                "total_credits": item.get("total_credits", item["credits"]),
+                "duration": item["duration"]
             })
         
         chunk_size = 500
         for i in range(0, len(slots_to_insert), chunk_size):
             supabase.table("timetable_slots").insert(slots_to_insert[i:i+chunk_size]).execute()
     except Exception as e:
-        print(f"⚠️ DB Error: {e}")
+        import traceback
+        print(f"⚠️ DB Error Full")
+        traceback.print_exc()
 
     full_time_slots = get_solver_slots(payload.start_time, payload.end_time, payload.duration)
     return {
@@ -131,12 +135,14 @@ def get_latest_schedule():
                 "id": f"{item['section']}-{item['subject']}-{item['id']}",
                 "section": item["section"],
                 "day": item["day"],
-                "time": item["time"],
+                "start_time": item.get("start_time"),
+                "end_time": item.get("end_time"),
                 "subject": item["subject"],
                 "teacher": item["teacher"],
                 "room": item["room"],
                 "credits": item["credits"],
-                "duration": item.get("duration", 1)
+                "total_credits": item.get("total_credits", item["credits"]),
+                "duration": item["duration"]
             })
         full_time_slots = []
         if config_id:
@@ -145,7 +151,7 @@ def get_latest_schedule():
                 cfg = config_res.data[0]['config_json']
                 full_time_slots = get_solver_slots(cfg['start_time'], cfg['end_time'], cfg['duration'])
         if not full_time_slots:
-             full_time_slots = sorted(list(set(s['time'] for s in formatted_schedule)))
+             full_time_slots = sorted(list(set(s["start_time"] for s in formatted_schedule if s.get("start_time"))))
 
         return {
             "schedule": formatted_schedule,
@@ -172,12 +178,14 @@ def get_specific_run(run_id: int):
                 "id": f"{item['section']}-{item['subject']}-{item['id']}",
                 "section": item["section"],
                 "day": item["day"],
-                "time": item["time"],
+                "start_time": item.get("start_time"),
+                "end_time": item.get("end_time"),
                 "subject": item["subject"],
                 "teacher": item["teacher"],
                 "room": item["room"],
                 "credits": item["credits"],
-                "duration": item.get("duration", 1)
+                "total_credits": item.get("total_credits", item["credits"]),
+                "duration": item["duration"]
             })
         full_time_slots = []
         run_info = supabase.table("timetable_runs").select("config_id").eq("id", run_id).single().execute()
@@ -188,7 +196,7 @@ def get_specific_run(run_id: int):
                 cfg = config_res.data[0]['config_json']
                 full_time_slots = get_solver_slots(cfg['start_time'], cfg['end_time'], cfg['duration'])
         if not full_time_slots:
-             full_time_slots = sorted(list(set(s['time'] for s in formatted_schedule)))
+             full_time_slots = sorted(list(set(s["start_time"] for s in formatted_schedule if s.get("start_time"))))
         return {
             "schedule": formatted_schedule,
             "time_slots": full_time_slots
