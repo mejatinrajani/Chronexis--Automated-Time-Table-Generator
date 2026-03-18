@@ -1,78 +1,104 @@
 import { SlotData } from "@/components/DraggableSlot";
-import { APISlot, formatTimeDisplay } from "@/utils/dataMapper"; // Reuse existing helpers
+import { APISlot } from "@/utils/dataMapper";
 
 const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"];
+const SLOT_DURATION = 50;
 
-// We reuse the GridData type
 type GridData = Record<string, Record<string, SlotData | null>>;
+
+// --- Helpers (reuse same logic as dataMapper) ---
+const parseTime = (t: string) => {
+  if (!t) return 0;
+  const [h, m] = t.split(":").map(Number);
+  return h * 60 + m;
+};
 
 export const mapApiToTeacherGrid = (apiData: APISlot[]) => {
   const grids: Record<string, GridData> = {};
   const timeSet = new Set<string>();
   const teacherSet = new Set<string>();
 
-  // 1. First, find all unique teachers and times
-  apiData.forEach(item => {
+  // 1️⃣ Collect teachers & time slots
+  apiData.forEach((item) => {
     teacherSet.add(item.teacher);
-    timeSet.add(item.time);
+    timeSet.add(item.start_time); // ✅ FIXED
   });
 
   const uniqueTeachers = Array.from(teacherSet).sort();
-  
-  // 2. Initialize Grids for each Teacher
-  uniqueTeachers.forEach(teacher => {
+
+  // 2️⃣ Sort time slots (same as dataMapper)
+  const sortedTimes = Array.from(timeSet).sort(
+    (a, b) => parseTime(a) - parseTime(b)
+  );
+
+  // 3️⃣ Initialize grids
+  uniqueTeachers.forEach((teacher) => {
     grids[teacher] = {};
-    DAYS.forEach(day => {
+    DAYS.forEach((day) => {
       grids[teacher][day] = {};
     });
   });
 
-  // 3. Populate Data
+  // 🔥 4️⃣ PLACE DATA (HANDLE LABS / DURATION)
   apiData.forEach((item) => {
-    // If the teacher name exists in our list
-    if (grids[item.teacher]) {
-      const timeKey = item.time;
-      
-      // LOGIC SWAP: On a Teacher's timetable, they want to know 
-      // WHICH SECTION they are teaching, not their own name.
-      // So we put 'item.section' into the 'teacher' field of the slot object.
-      grids[item.teacher][item.day][timeKey] = {
+    const duration = item.duration || 1;
+    const startIndex = sortedTimes.indexOf(item.start_time);
+
+    for (let i = 0; i < duration; i++) {
+      const timeKey = sortedTimes[startIndex + i];
+      if (!timeKey) continue;
+
+      if (!grids[item.teacher]) continue;
+
+      const slot: SlotData = {
         id: String(item.id),
         subject: item.subject,
-        teacher: `Section ${item.section}`, // <--- Display Section Name here
+        teacher: `Section ${item.section}`, // ✅ correct display
         room: item.room,
-        credits: item.credits
+        credits: item.total_credits ?? item.credits,
+        duration: duration,
       };
+
+      if (!grids[item.teacher][item.day]) {
+        grids[item.teacher][item.day] = {};
+      }
+
+      grids[item.teacher][item.day][timeKey] = slot;
     }
   });
 
-  // 4. Sort Times & Detect Breaks (Reuse logic from dataMapper if possible, or simple sort)
-  // We'll do a simple sort here to match your existing logic
-  const sortedTimes = Array.from(timeSet).sort((a, b) => {
-    const [h1, m1] = a.split(":").map(Number);
-    const [h2, m2] = b.split(":").map(Number);
-    return h1 * 60 + m1 - (h2 * 60 + m2);
-  });
-
-  // Calculate breaks (Simple 60min gap check)
-  const breakTimes: string[] = [];
+  // 5️⃣ Detect breaks (same logic as main mapper)
   const finalTimes: string[] = [];
-  
+
   for (let i = 0; i < sortedTimes.length; i++) {
     finalTimes.push(sortedTimes[i]);
+
     if (i < sortedTimes.length - 1) {
-      const current = parseInt(sortedTimes[i].split(":")[0]) * 60 + parseInt(sortedTimes[i].split(":")[1]);
-      const next = parseInt(sortedTimes[i+1].split(":")[0]) * 60 + parseInt(sortedTimes[i+1].split(":")[1]);
-      
+      const current = parseTime(sortedTimes[i]);
+      const next = parseTime(sortedTimes[i + 1]);
+
       if (next - current > 60) {
-        // Calculate break start (e.g. +50 mins)
-        const breakMins = current + 50; 
-        const breakStr = `${Math.floor(breakMins/60)}:${(breakMins%60).toString().padStart(2,'0')}`;
-        finalTimes.push(breakStr);
-        breakTimes.push(breakStr);
+        const breakStart = current + SLOT_DURATION;
+
+        const breakStr = `${Math.floor(breakStart / 60)}:${(
+          breakStart % 60
+        )
+          .toString()
+          .padStart(2, "0")}`;
+
+        if (!timeSet.has(breakStr)) {
+          finalTimes.push(breakStr);
+        }
       }
     }
   }
 
-  return { grids, uniqueTeachers, uniqueTimes: finalTimes, breakTimes };
+  const breakTimes = finalTimes.filter((t) => !timeSet.has(t));
+
+  return {
+    grids,
+    uniqueTeachers,
+    uniqueTimes: finalTimes,
+    breakTimes,
+  };
 };

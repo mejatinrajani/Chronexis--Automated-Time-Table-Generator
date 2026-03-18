@@ -8,11 +8,10 @@ import InputField from "@/components/InputField";
 import ClipboardArea from "@/components/ClipboardArea";
 import DeleteZone from "@/components/DeleteZone"; 
 import HistoryModal from "@/components/HistoryModal";
-import { Undo2, Plus, FileSpreadsheet, History, GraduationCap, XCircle, AlertTriangle, Activity, ShieldCheck, CheckCircle2 } from "lucide-react";
+import { Undo2, Plus, FileSpreadsheet, History, GraduationCap } from "lucide-react";
 import { SlotData } from "@/components/DraggableSlot";
 import { APISlot, formatTimeDisplay } from "@/utils/dataMapper";
 import { mapApiToTeacherGrid } from "@/utils/teacherMapper";
-import { validateTimetable, ValidationError } from "@/utils/Validator";
 import { exportTimetableToExcel } from "@/utils/excelExport";
 
 const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"];
@@ -26,7 +25,6 @@ const TeacherTimetable = () => {
   const [activeTeacher, setActiveTeacher] = useState("");
   const [loading, setLoading] = useState(false);
   const [allGrids, setAllGrids] = useState<Record<string, GridData>>({});
-  const [validationErrors, setValidationErrors] = useState<ValidationError[] | null>(null);
   
   const [timeSlots, setTimeSlots] = useState<string[]>([]);
   const [breakTimes, setBreakTimes] = useState<string[]>([]); 
@@ -69,13 +67,6 @@ const TeacherTimetable = () => {
 
     fetchSchedule();
   }, []);
-
-  useEffect(() => {
-    if (Object.keys(allGrids).length > 0) {
-        const errors = validateTimetable(allGrids);
-        setValidationErrors(errors);
-    }
-  }, [allGrids]); 
 
   const handleExportExcel = () => {
     exportTimetableToExcel(allGrids, timeSlots, "Faculty_Schedules");
@@ -189,12 +180,12 @@ const TeacherTimetable = () => {
   }, [pushHistory]);
 
   const handleAddClass = () => {
-    if (!newSubject || !newSection) return; // Validate Section instead of Teacher
+    if (!newSubject || !newSection) return;
     pushHistory();
     const slot: SlotData = {
       id: String(nextId++),
       subject: newSubject,
-      teacher: `Section ${newSection}`, // Store Section as "Teacher" for display consistency
+      teacher: `Section ${newSection}`,
       room: newRoom || undefined,
       credits: newCredits ? Number(newCredits) : undefined,
     };
@@ -356,50 +347,14 @@ const TeacherTimetable = () => {
         onLoadRun={handleHistoryLoad}
       />
 
-       <div className="mt-8 border-t border-border pt-6 transition-all duration-300">
-          <div className="flex items-center justify-between mb-4">
-             <div>
-                <h3 className="text-lg font-semibold text-foreground flex items-center gap-2">
-                   <ShieldCheck className="text-primary" /> Live Validator
-                   <span className="flex h-2 w-2 relative ml-1">
-                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
-                      <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
-                   </span>
-                </h3>
-                <p className="text-sm text-muted-foreground">Monitoring faculty double-booking and room clashes.</p>
-             </div>
-          </div>
+      {/* Disabled Validator Notice */}
+      <div className="mt-8 border-t border-border pt-6">
+        <h3 className="text-lg font-semibold text-foreground mb-2">Live Validator</h3>
+        <p className="text-sm text-muted-foreground">
+          Not for teachers — it's for students. Timetable is already validated on the student side, so there is no chance of error here.
+        </p>
+      </div>
 
-          {validationErrors && (
-             <div className="animate-fade-in">
-                {validationErrors.length === 0 ? (
-                   <div className="flex items-center gap-3 rounded-lg border border-green-200 bg-green-50 p-4 text-green-800">
-                      <CheckCircle2 size={24} />
-                      <div><p className="font-semibold">All Systems Nominal</p></div>
-                   </div>
-                ) : (
-                   <div className="space-y-3">
-                      <div className="flex items-center gap-2 text-sm font-medium text-red-600 mb-2 animate-pulse">
-                         <Activity size={16} /> Detected {validationErrors.length} Issues
-                      </div>
-                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                         {validationErrors.map((err) => (
-                            <div key={err.id} className={`rounded-md border p-3 shadow-sm ${err.severity === 'critical' ? 'border-red-200 bg-red-50' : 'border-amber-200 bg-amber-50'}`}>
-                               <div className="flex items-start gap-2">
-                                  {err.severity === 'critical' ? <XCircle className="text-red-600" size={16} /> : <AlertTriangle className="text-amber-600" size={16} />}
-                                  <div>
-                                     <p className="text-sm font-bold text-red-800">{err.message}</p>
-                                     {err.details?.map((d, i) => <p key={i} className="text-xs mt-1 text-red-600">{d}</p>)}
-                                  </div>
-                               </div>
-                            </div>
-                         ))}
-                      </div>
-                   </div>
-                )}
-             </div>
-          )}
-       </div>
     </DashboardLayout>
   );
 };
