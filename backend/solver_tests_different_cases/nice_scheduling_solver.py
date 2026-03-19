@@ -1,12 +1,10 @@
 
 from __future__ import annotations
-
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import time, timedelta, datetime
 from itertools import groupby
 from typing import Dict, List, Tuple
-
 from ortools.sat.python import cp_model
 
 @dataclass
@@ -18,7 +16,6 @@ class Slot:
     start_time: time
     end_time: time
     duration_minutes: int
-
 
 @dataclass
 class MinimalData:
@@ -35,31 +32,22 @@ class MinimalData:
     hours: Dict[str, Dict[str, int]]
     scheduling_style: str
 
-
-
-def calculate_lunch_break(
-    shift_start: time, shift_end: time, duration_minutes: int = 60
-) -> Tuple[time, time]:
+def calculate_lunch_break(shift_start: time, shift_end: time,
+                          duration_minutes: int = 60) -> Tuple[time, time]:
     dummy    = datetime(2000, 1, 1)
     start_dt = datetime.combine(dummy, shift_start)
     end_dt   = datetime.combine(dummy, shift_end)
     mid      = start_dt + (end_dt - start_dt) / 2
     earliest = datetime.combine(dummy, time(12, 0))
     ls = max(mid - timedelta(minutes=duration_minutes / 2), earliest)
-    if ls.minute < 15:
-        ls = ls.replace(minute=0)
-    elif ls.minute < 45:
-        ls = ls.replace(minute=30)
-    else:
-        ls = (ls + timedelta(hours=1)).replace(minute=0)
+    if ls.minute < 15:   ls = ls.replace(minute=0)
+    elif ls.minute < 45: ls = ls.replace(minute=30)
+    else:                ls = (ls + timedelta(hours=1)).replace(minute=0)
     return ls.time(), (ls + timedelta(minutes=duration_minutes)).time()
 
-
 def generate_time_slots(
-    working_days: List[int],
-    day_names: List[str],
-    shift_start: time,
-    shift_end: time,
+    working_days: List[int], day_names: List[str],
+    shift_start: time, shift_end: time,
     slot_duration_minutes: int = 50,
     break_periods: List[Tuple[time, time]] = None,
     buffer_minutes: int = 5,
@@ -75,273 +63,404 @@ def generate_time_slots(
             end = now + timedelta(minutes=slot_duration_minutes)
             if end.time() > shift_end:
                 break
-            if any(not (end.time() <= bs or now.time() >= be)
-                   for bs, be in break_periods):
+            if any(not (end.time() <= bs or now.time() >= be) for bs, be in break_periods):
                 for bs, be in break_periods:
                     if now.time() < be:
                         now = datetime(2000, 1, 1, be.hour, be.minute)
                         break
                 continue
-            slots.append(Slot(
-                id=gid, day_index=day_idx, day_name=day_name,
-                slot_index=sidx, start_time=now.time(),
-                end_time=end.time(), duration_minutes=slot_duration_minutes,
-            ))
+            slots.append(Slot(id=gid, day_index=day_idx, day_name=day_name,
+                              slot_index=sidx, start_time=now.time(),
+                              end_time=end.time(), duration_minutes=slot_duration_minutes))
             gid += 1; sidx += 1; now = end
     return slots
-
-
 
 def check_feasibility(data: MinimalData) -> Tuple[bool, str]:
     num_slots   = len(data.slots)
     slot_to_day = [s.day_index for s in data.slots]
 
-    valid_starts_by_dur: Dict[int, list] = {}
+    valid_by_dur: Dict[int, list] = {}
     for dur in set(data.subject_durations.values()) | {1}:
-        vs = [
-            s for s in range(num_slots - dur + 1)
-            if slot_to_day[s] == slot_to_day[s + dur - 1]
-            and (dur != 2 or data.slots[s].end_time == data.slots[s + 1].start_time)
-        ]
-        valid_starts_by_dur[dur] = vs
+        vs = [s for s in range(num_slots - dur + 1)
+              if slot_to_day[s] == slot_to_day[s + dur - 1]
+              and (dur != 2 or data.slots[s].end_time == data.slots[s + 1].start_time)]
+        valid_by_dur[dur] = vs
         if not vs:
             return False, f"No valid start slots for duration={dur}."
 
     for sec in data.sections:
-        needed = sum(
-            data.subject_durations.get(sub, 1) * count
-            for sub, count in data.hours[sec].items()
-        )
+        needed = sum(data.subject_durations.get(sub, 1) * c
+                     for sub, c in data.hours[sec].items())
         if needed > num_slots:
-            return False, (
-                f"Section '{sec}' needs {needed} slot-units "
-                f"but only {num_slots} exist."
-            )
+            return False, f"Section '{sec}' needs {needed} slots, only {num_slots} exist."
 
     for sub in data.subjects:
         if not data.competencies.get(sub):
-            return False, f"Subject '{sub}' has no competent teachers."
+            return False, f"Subject '{sub}' has no teachers."
         sub_type = data.subject_types.get(sub)
         if not any(data.room_types.get(r) == sub_type for r in data.rooms):
-            return False, (
-                f"Subject '{sub}' needs room type '{sub_type}' "
-                f"but no such rooms exist."
-            )
+            return False, f"Subject '{sub}' needs room type '{sub_type}' — none found."
 
-    # Teacher overload check
-    teacher_sole_load: Dict[str, int] = defaultdict(int)
+    teacher_load: Dict[str, int] = defaultdict(int)
     for sec in data.sections:
         for sub, count in data.hours[sec].items():
-            dur = data.subject_durations.get(sub, 1)
             teachers = data.competencies.get(sub, [])
             if len(teachers) == 1:
-                teacher_sole_load[teachers[0]] += dur * count
+                teacher_load[teachers[0]] += data.subject_durations.get(sub, 1) * count
+    for t, l in teacher_load.items():
+        if l > num_slots:
+            return False, f"Teacher '{t}' sole-teaches {l} SU > {num_slots} slots."
 
-    for teacher, load in teacher_sole_load.items():
-        if load > num_slots:
-            return False, (
-                f"Teacher '{teacher}' sole-teaches {load} slot-units "
-                f"but only {num_slots} slots exist."
-            )
-
-    # Room type capacity
-    type_load:  Dict[str, int] = defaultdict(int)
-    type_rooms: Dict[str, int] = defaultdict(int)
+    type_load: Dict[str, int] = defaultdict(int)
+    type_cap:  Dict[str, int] = defaultdict(int)
     for r, rt in data.room_types.items():
-        type_rooms[rt] += 1
+        type_cap[rt] += num_slots
     for sec in data.sections:
         for sub, count in data.hours[sec].items():
             rt = data.subject_types.get(sub)
             if rt:
                 type_load[rt] += data.subject_durations.get(sub, 1) * count
     for rt, load in type_load.items():
-        cap = type_rooms[rt] * num_slots
-        if load > cap:
-            return False, (
-                f"Room type '{rt}': demand={load} > capacity={cap}."
-            )
+        if load > type_cap[rt]:
+            return False, f"Room type '{rt}': demand {load} > capacity {type_cap[rt]}."
 
     return True, ""
 
-
-
-def preassign_resources(
-    data: MinimalData,
+def preassign_resources(data: MinimalData
 ) -> Tuple[Dict[Tuple[str,str], str], Dict[Tuple[str,str], str]]:
-
-    # Teacher assignment (round-robin by load) 
     teacher_map: Dict[Tuple[str,str], str] = {}
-    teacher_load: Dict[str, int] = defaultdict(int)
-
+    t_load: Dict[str, int] = defaultdict(int)
     for sub in data.subjects:
         teachers = data.competencies.get(sub, [])
         if not teachers:
             continue
         for sec in sorted(data.sections):
-            # Always pick the least-loaded eligible teacher
-            chosen = min(teachers, key=lambda t: teacher_load[t])
+            chosen = min(teachers, key=lambda t: t_load[t])
             teacher_map[(sec, sub)] = chosen
-            teacher_load[chosen] += (
-                data.subject_durations.get(sub, 1) *
-                data.hours[sec].get(sub, 0)
-            )
+            t_load[chosen] += (data.subject_durations.get(sub, 1) *
+                               data.hours[sec].get(sub, 0))
 
-    # Room assignment (round-robin by type) 
-    # Group rooms by type
     rooms_by_type: Dict[str, List[str]] = defaultdict(list)
     for r in data.rooms:
         rooms_by_type[data.room_types[r]].append(r)
 
     room_map: Dict[Tuple[str,str], str] = {}
-    room_counters: Dict[str, int] = defaultdict(int)  
-
+    r_ctr: Dict[str, int] = defaultdict(int)
     for sub in data.subjects:
         sub_type = data.subject_types.get(sub, "THEORY")
-        available_rooms = rooms_by_type.get(sub_type, [])
-        if not available_rooms:
+        avail = rooms_by_type.get(sub_type, [])
+        if not avail:
             continue
         for sec in sorted(data.sections):
-            idx = room_counters[sub_type] % len(available_rooms)
-            room_map[(sec, sub)] = available_rooms[idx]
-            room_counters[sub_type] += 1
+            room_map[(sec, sub)] = avail[r_ctr[sub_type] % len(avail)]
+            r_ctr[sub_type] += 1
 
     return teacher_map, room_map
 
+def make_on_day_indicator(model, start_var, lo: int, hi: int,
+                          max_slot: int, name: str):
+    b = model.NewBoolVar(name)
+    model.Add(start_var >= lo).OnlyEnforceIf(b)
+    model.Add(start_var <= hi).OnlyEnforceIf(b)
+
+    can_be_below = (lo > 0)       
+    can_be_above = (hi < max_slot)
+
+    if can_be_below and can_be_above:
+        b_below = model.NewBoolVar(f"{name}_bel")
+        b_above = model.NewBoolVar(f"{name}_abv")
+        model.Add(start_var <= lo - 1).OnlyEnforceIf(b_below)
+        model.Add(start_var >= hi + 1).OnlyEnforceIf(b_above)
+        model.AddBoolOr([b_below, b_above]).OnlyEnforceIf(b.Not())
+    elif can_be_below:
+        model.Add(start_var <= lo - 1).OnlyEnforceIf(b.Not())
+    elif can_be_above:
+        model.Add(start_var >= hi + 1).OnlyEnforceIf(b.Not())
+    else:
+        model.Add(b == 1)
+
+    return b
 
 def run_solver_internal(data: MinimalData) -> List[dict]:
 
-    # 0. Pre-flight 
     print("🔍 Running feasibility checks...")
     ok, reason = check_feasibility(data)
     if not ok:
-        print(f"  ❌ {reason}")
-        return []
+        print(f"  ❌ {reason}"); return []
     print("✅ Data checks passed.\n")
 
-    # 1. Pre-assign teachers and rooms 
     teacher_map, room_map = preassign_resources(data)
     print("👩‍🏫 Teachers + rooms pre-assigned.")
 
-    # Verify teacher load after assignment
     W = len(data.slots)
-    teacher_load: Dict[str, int] = defaultdict(int)
+    t_load: Dict[str, int] = defaultdict(int)
     for sec in data.sections:
         for sub, count in data.hours[sec].items():
-            dur = data.subject_durations.get(sub, 1)
-            t   = teacher_map.get((sec, sub))
+            t = teacher_map.get((sec, sub))
             if t:
-                teacher_load[t] += dur * count
-
-    overloaded = [(t, l) for t, l in teacher_load.items() if l > W]
+                t_load[t] += data.subject_durations.get(sub, 1) * count
+    overloaded = [(t, l) for t, l in t_load.items() if l > W]
     if overloaded:
         for t, l in overloaded:
-            print(f"  ❌ Teacher '{t}' has {l} slot-units > {W} available.")
-        print("🛑 Add more teachers.")
-        print(f"   Formula: n_teachers >= ceil(n_sections × credits × dur / (0.45 × {W}))")
+            print(f"  ❌ Teacher '{t}' has {l} SU > {W}.")
         return []
 
-    # 2. Build model 
+    num_slots   = len(data.slots)
+    slot_to_day = [s.day_index for s in data.slots]
+    unique_days = sorted(set(slot_to_day))
+    spd         = sum(1 for s in data.slots if s.day_index == unique_days[0])
+    max_slot    = num_slots - 1
+
+    valid_by_dur: Dict[int, list] = {}
+    for dur in set(data.subject_durations.values()) | {1}:
+        valid_by_dur[dur] = [
+            s for s in range(num_slots - dur + 1)
+            if slot_to_day[s] == slot_to_day[s + dur - 1]
+            and (dur != 2 or data.slots[s].end_time == data.slots[s + 1].start_time)
+        ]
+
+    valid_by_day_dur: Dict[Tuple[int,int], List[int]] = {}
+    for dur in valid_by_dur:
+        for day in unique_days:
+            vd = [s for s in valid_by_dur[dur] if slot_to_day[s] == day]
+            if vd:
+                valid_by_day_dur[(day, dur)] = vd
+
+    day_range: Dict[int, Tuple[int,int]] = {}
+    for day in unique_days:
+        vd = valid_by_day_dur.get((day, 1), [])
+        if vd:
+            day_range[day] = (min(vd), max(vd))
+
+    instances: list = []
+    for sec in data.sections:
+        for sub, count in data.hours[sec].items():
+            dur    = data.subject_durations.get(sub, 1)
+            is_lab = (data.subject_types.get(sub) == "LAB")
+            for credit_idx in range(count):
+                instances.append({
+                    "sec": sec, "sub": sub, "dur": dur, "is_lab": is_lab,
+                    "teacher": teacher_map.get((sec, sub), ""),
+                    "room":    room_map.get((sec, sub), ""),
+                    "credits": 1, "total_credits": count,
+                    "credit_idx": credit_idx,
+                })
+
+    n = len(instances)
+    print(f"📐 Instances: {n}  |  Pure scheduling\n")
+
     model  = cp_model.CpModel()
     solver = cp_model.CpSolver()
-
     solver.parameters.max_time_in_seconds = 300
     solver.parameters.num_search_workers  = 8
     solver.parameters.log_search_progress = True
     solver.parameters.cp_model_presolve   = True
     solver.parameters.symmetry_level      = 2
 
-    # Slot metadata 
-    num_slots   = len(data.slots)
-    slot_to_day = [s.day_index for s in data.slots]
-
-    valid_starts_by_dur: Dict[int, list] = {}
-    for dur in set(data.subject_durations.values()) | {1}:
-        valid_starts_by_dur[dur] = [
-            s for s in range(num_slots - dur + 1)
-            if slot_to_day[s] == slot_to_day[s + dur - 1]
-            and (dur != 2 or data.slots[s].end_time == data.slots[s + 1].start_time)
-        ]
-
-    # Build instances 
-    instances: list = []
-    for sec in data.sections:
-        for sub, count in data.hours[sec].items():
-            dur     = data.subject_durations.get(sub, 1)
-            teacher = teacher_map.get((sec, sub), "")
-            room    = room_map.get((sec, sub), "")
-            for credit_idx in range(count):
-                instances.append({
-                    "sec": sec, "sub": sub, "dur": dur,
-                    "teacher": teacher,   # fixed constant
-                    "room":    room,      # fixed constant
-                    "credits": 1, "total_credits": count,
-                    "credit_idx": credit_idx,
-                })
-
-    n = len(instances)
-    print(f"📐 Instances: {n}  |  Boolean vars: 0  |  Pure scheduling problem")
-
-    # Variables: start times only
     starts    = []
-    intervals = []   
+    intervals = []
     for i, inst in enumerate(instances):
-        start = model.new_int_var_from_domain(
-            cp_model.Domain.from_values(valid_starts_by_dur[inst["dur"]]),
-            f"s_{i}"
-        )
+        start = model.NewIntVarFromDomain(
+            cp_model.Domain.FromValues(valid_by_dur[inst["dur"]]), f"s_{i}")
         starts.append(start)
         intervals.append(
-            model.new_interval_var(start, inst["dur"], start + inst["dur"], f"iv_{i}")
-        )
+            model.NewIntervalVar(start, inst["dur"], start + inst["dur"], f"iv_{i}"))
 
-
-    sec_groups:     Dict[str, list] = defaultdict(list)
-    teacher_groups: Dict[str, list] = defaultdict(list)
-    room_groups:    Dict[str, list] = defaultdict(list)
-
+    sec_grp: Dict[str, list] = defaultdict(list)
+    tch_grp: Dict[str, list] = defaultdict(list)
+    rom_grp: Dict[str, list] = defaultdict(list)
     for i, inst in enumerate(instances):
-        sec_groups[inst["sec"]].append(intervals[i])
-        teacher_groups[inst["teacher"]].append(intervals[i])
-        room_groups[inst["room"]].append(intervals[i])
+        sec_grp[inst["sec"]].append(intervals[i])
+        tch_grp[inst["teacher"]].append(intervals[i])
+        rom_grp[inst["room"]].append(intervals[i])
+    for ivs in sec_grp.values():
+        model.AddNoOverlap(ivs)
+    for ivs in tch_grp.values():
+        if len(ivs) > 1: model.AddNoOverlap(ivs)
+    for ivs in rom_grp.values():
+        if len(ivs) > 1: model.AddNoOverlap(ivs)
 
-    for ivs in sec_groups.values():
-        model.add_no_overlap(ivs)
-
-    for ivs in teacher_groups.values():
-        if len(ivs) > 1:
-            model.add_no_overlap(ivs)
-
-    for ivs in room_groups.values():
-        if len(ivs) > 1:
-            model.add_no_overlap(ivs)
-
-    # Symmetry breaking: order identical (sec, sub) instances by start time
-    key_fn = lambda idx: (instances[idx]["sec"], instances[idx]["sub"])
-    for _, grp in groupby(sorted(range(n), key=key_fn), key=key_fn):
-        g = list(grp)
+    kf = lambda idx: (instances[idx]["sec"], instances[idx]["sub"])
+    sec_sub_grp: Dict[Tuple[str,str], List[int]] = defaultdict(list)
+    for _, grp_iter in groupby(sorted(range(n), key=kf), key=kf):
+        g = list(grp_iter)
         for a, b in zip(g, g[1:]):
-            model.add(starts[a] <= starts[b])
+            model.Add(starts[a] <= starts[b])
+        key = (instances[g[0]]["sec"], instances[g[0]]["sub"])
+        sec_sub_grp[key] = g
 
-    model.minimize(sum(starts))
+    print("Building H4 (max 2 same-subject per day)...")
+    h4_count = 0
+    for (sec, sub), grp in sec_sub_grp.items():
+        if len(grp) < 3:
+            continue
+        dur = instances[grp[0]]["dur"]
+        for day in unique_days:
+            dv = valid_by_day_dur.get((day, dur))
+            if not dv:
+                continue
+            lo, hi = min(dv), max(dv)
 
-    print("🚀 Starting solver …")
-    status = solver.solve(model)
+            i_first = grp[0]
+            i_last  = grp[-1]
+
+            b_f = make_on_day_indicator(model, starts[i_first], lo, hi,
+                                        max_slot, f"h4f_{i_first}_{day}")
+            b_l = make_on_day_indicator(model, starts[i_last],  lo, hi,
+                                        max_slot, f"h4l_{i_last}_{day}")
+            model.Add(b_f + b_l <= 1)
+            h4_count += 1
+
+            for mid_idx in range(2, len(grp) - 1):
+                i_mid = grp[mid_idx]
+                b_m = make_on_day_indicator(model, starts[i_mid], lo, hi,
+                                            max_slot, f"h4m_{i_mid}_{day}")
+                model.Add(b_f + b_m <= 1)
+                h4_count += 1
+
+    print(f"  H4 constraints: {h4_count}")
+
+    print("Building H5 (lab sessions on different days)...")
+    h5_count = 0
+    for (sec, sub), grp in sec_sub_grp.items():
+        if not instances[grp[0]]["is_lab"] or len(grp) < 2:
+            continue
+        dur = instances[grp[0]]["dur"]
+        for a_pos, i0 in enumerate(grp):
+            for i1 in grp[a_pos + 1:]:
+                for day in unique_days:
+                    dv = valid_by_day_dur.get((day, dur))
+                    if not dv:
+                        continue
+                    lo, hi = min(dv), max(dv)
+                    b_f = make_on_day_indicator(model, starts[i0], lo, hi,
+                                                max_slot, f"h5f_{i0}_{day}")
+                    b_l = make_on_day_indicator(model, starts[i1], lo, hi,
+                                                max_slot, f"h5l_{i1}_{day}")
+                    model.Add(b_f + b_l <= 1)
+                    h5_count += 1
+
+    print(f"  H5 constraints: {h5_count}")
+
+    print("Building H6 (daily theory cap ≤ 6 per section)...")
+    MAX_THEORY = 6
+    h6_count = 0
+    sec_theory_grp: Dict[str, List[int]] = defaultdict(list)
+    for i, inst in enumerate(instances):
+        if not inst["is_lab"]:
+            sec_theory_grp[inst["sec"]].append(i)
+    for sec in sec_theory_grp:
+        sec_theory_grp[sec].sort()
+
+    for sec, grp in sec_theory_grp.items():
+        if len(grp) <= MAX_THEORY:
+            continue
+        for day in unique_days:
+            lo, hi = day_range.get(day, (None, None))
+            if lo is None:
+                continue
+            for start_idx in range(len(grp) - MAX_THEORY):
+                i_first = grp[start_idx]
+                i_last  = grp[start_idx + MAX_THEORY]
+                b_f = make_on_day_indicator(model, starts[i_first], lo, hi,
+                                            max_slot, f"h6f_{i_first}_{day}")
+                b_l = make_on_day_indicator(model, starts[i_last],  lo, hi,
+                                            max_slot, f"h6l_{i_last}_{day}")
+                model.Add(b_f + b_l <= 1)
+                h6_count += 1
+
+    print(f"  H6 constraints: {h6_count}")
+
+    print("Building soft objective (S1 compact, S2 gap, S3 load)...")
+    PENALTY_GAP  = 15
+    PENALTY_LOAD = 4
+    BIG          = num_slots + 1
+    obj_terms    = []
+
+    for i in range(n):
+        obj_terms.append(starts[i])
+
+    od_cache: Dict[Tuple[int,int], object] = {}
+
+    def get_od(i, day):
+        key = (i, day)
+        if key in od_cache:
+            return od_cache[key]
+        dur = instances[i]["dur"]
+        dv  = valid_by_day_dur.get((day, dur))
+        if not dv:
+            b = model.NewBoolVar(f"od_{i}_{day}")
+            model.Add(b == 0)
+            od_cache[key] = b
+            return b
+        lo, hi = min(dv), max(dv)
+        b = make_on_day_indicator(model, starts[i], lo, hi,
+                                  max_slot, f"od_{i}_{day}")
+        od_cache[key] = b
+        return b
+
+    for sec in data.sections:
+        sec_inst = [i for i, inst in enumerate(instances) if inst["sec"] == sec]
+
+        for day in unique_days:
+            can_be = [i for i in sec_inst
+                      if valid_by_day_dur.get((day, instances[i]["dur"]))]
+            if not can_be:
+                continue
+
+            theory_here = [i for i in can_be if not instances[i]["is_lab"]]
+            if len(theory_here) > 5:
+                el = model.NewIntVar(0, 6, f"el_{sec}_{day}")
+                model.Add(el >= sum(get_od(i, day) for i in theory_here) - 5)
+                obj_terms.append(el * PENALTY_LOAD)
+
+            if len(can_be) < 3:
+                continue
+
+            earliest = model.NewIntVar(0, num_slots, f"ea_{sec}_{day}")
+            latest   = model.NewIntVar(0, num_slots, f"la_{sec}_{day}")
+            tot_dur  = model.NewIntVar(0, spd * 2,   f"td_{sec}_{day}")
+            any_on   = model.NewBoolVar(f"any_{sec}_{day}")
+
+            model.Add(sum(get_od(i, day) for i in can_be) >= 1).OnlyEnforceIf(any_on)
+            model.Add(sum(get_od(i, day) for i in can_be) == 0).OnlyEnforceIf(any_on.Not())
+
+            for i in can_be:
+                dur = instances[i]["dur"]
+                b   = get_od(i, day)
+                model.Add(earliest <= starts[i] + BIG - BIG * b)
+                model.Add(latest   >= starts[i] + dur - BIG + BIG * b)
+
+            model.Add(tot_dur == sum(instances[i]["dur"] * get_od(i, day) for i in can_be))
+
+            span    = model.NewIntVar(0, spd + 2, f"sp_{sec}_{day}")
+            gap     = model.NewIntVar(0, spd + 2, f"gp_{sec}_{day}")
+            gap_exc = model.NewIntVar(0, spd + 2, f"gx_{sec}_{day}")
+
+            model.Add(span == latest - earliest).OnlyEnforceIf(any_on)
+            model.Add(span == 0).OnlyEnforceIf(any_on.Not())
+            model.Add(gap  == span - tot_dur).OnlyEnforceIf(any_on)
+            model.Add(gap  == 0).OnlyEnforceIf(any_on.Not())
+            model.Add(gap_exc >= gap - 2)
+            obj_terms.append(gap_exc * PENALTY_GAP)
+
+    print(f"  Objective terms: {len(obj_terms)}")
+    model.Minimize(sum(obj_terms))
+
+    print("\n🚀 Starting solver …")
+    status = solver.Solve(model)
 
     if status not in (cp_model.OPTIMAL, cp_model.FEASIBLE):
         print("❌ No solution found.")
-        print("   Room pre-assignment may have created conflicts.")
-        print("   Check: are there enough rooms for concurrent peak demand?")
-        print(f"   You need at least {len(data.sections)} rooms of each type.")
         return []
 
-    print(f"✅ {solver.status_name(status)} | "
-          f"Objective: {solver.objective_value:.0f} | "
-          f"Wall time: {solver.wall_time:.1f}s")
-
+    print(f"✅ {solver.StatusName(status)} | "
+          f"Objective: {solver.ObjectiveValue():.0f} | "
+          f"Wall time: {solver.WallTime():.1f}s")
 
     output = []
     for i, inst in enumerate(instances):
-        s          = solver.value(starts[i])
+        s          = solver.Value(starts[i])
         start_slot = data.slots[s]
         end_slot   = data.slots[s + inst["dur"] - 1]
         output.append({
@@ -358,7 +477,6 @@ def run_solver_internal(data: MinimalData) -> List[dict]:
         })
     return output
 
-
 def solve_custom_timetable(json_data: dict):
     s_h, s_m = map(int, json_data["start_time"].split(":"))
     e_h, e_m = map(int, json_data["end_time"].split(":"))
@@ -366,28 +484,20 @@ def solve_custom_timetable(json_data: dict):
     shift_end   = time(e_h, e_m)
 
     lunch_start, lunch_end = calculate_lunch_break(shift_start, shift_end)
-
     slots = generate_time_slots(
-        working_days=[0, 1, 2, 3, 4],
-        day_names=["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"],
-        shift_start=shift_start,
-        shift_end=shift_end,
+        working_days=[0,1,2,3,4],
+        day_names=["Monday","Tuesday","Wednesday","Thursday","Friday"],
+        shift_start=shift_start, shift_end=shift_end,
         slot_duration_minutes=json_data["duration"],
-        break_periods=[(lunch_start, lunch_end)],
-        buffer_minutes=0,
+        break_periods=[(lunch_start, lunch_end)], buffer_minutes=0,
     )
 
     sections = json_data["sections"]
     subjects = [s["name"] for s in json_data["subjects"]]
-
-    subject_types     = {
-        s["name"]: ("LAB" if s.get("is_lab", False) else "THEORY")
-        for s in json_data["subjects"]
-    }
-    subject_durations = {
-        s["name"]: (2 if s.get("is_lab", False) else 1)
-        for s in json_data["subjects"]
-    }
+    subject_types     = {s["name"]: ("LAB" if s.get("is_lab") else "THEORY")
+                         for s in json_data["subjects"]}
+    subject_durations = {s["name"]: (2 if s.get("is_lab") else 1)
+                         for s in json_data["subjects"]}
 
     faculty_list = [f["name"] for f in json_data["faculty"]]
     competencies: Dict[str, List[str]] = {sub: [] for sub in subjects}
@@ -396,20 +506,15 @@ def solve_custom_timetable(json_data: dict):
             if sub in competencies:
                 competencies[sub].append(fac["name"])
 
-    rooms:      List[str]        = []
-    room_types: Dict[str, str]   = {}
-    for r_block in json_data["rooms"]:
-        for r_num in range(r_block["start"], r_block["end"] + 1):
-            room_name = f"{r_block['block']}-{r_num}"
-            rooms.append(room_name)
-            room_types[room_name] = (
-                "LAB" if "LAB" in r_block["block"].upper() else "THEORY"
-            )
+    rooms: List[str] = []; room_types: Dict[str, str] = {}
+    for rb in json_data["rooms"]:
+        for r_num in range(rb["start"], rb["end"] + 1):
+            rn = f"{rb['block']}-{r_num}"
+            rooms.append(rn)
+            room_types[rn] = "LAB" if "LAB" in rb["block"].upper() else "THEORY"
 
-    user_hours = {
-        sec: {s["name"]: s["credits"] for s in json_data["subjects"]}
-        for sec in sections
-    }
+    user_hours = {sec: {s["name"]: s["credits"] for s in json_data["subjects"]}
+                  for sec in sections}
 
     data = MinimalData(
         sections=sections, subjects=subjects, slots=slots,
@@ -425,5 +530,4 @@ def solve_custom_timetable(json_data: dict):
         print(f" Feasibility Check Failed: {reason}")
         return []
     print("Math checks out. Starting Solver...")
-
     return run_solver_internal(data)

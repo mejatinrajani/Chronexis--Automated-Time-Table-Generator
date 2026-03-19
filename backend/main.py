@@ -128,9 +128,27 @@ def get_latest_schedule():
         latest_run = runs.data[0]
         run_id = latest_run['id']
         config_id = latest_run.get('config_id')
-        slots_res = supabase.table("timetable_slots").select("*").eq("run_id", run_id).execute()
+
+        # ----- PAGINATION FETCH -----
+        all_slots = []
+        page_size = 1000
+        start = 0
+        while True:
+            response = supabase.table("timetable_slots") \
+                .select("*") \
+                .eq("run_id", run_id) \
+                .range(start, start + page_size - 1) \
+                .execute()
+            if not response.data:
+                break
+            all_slots.extend(response.data)
+            if len(response.data) < page_size:
+                break
+            start += page_size
+        # ----------------------------
+
         formatted_schedule = []
-        for item in slots_res.data:
+        for item in all_slots:
             formatted_schedule.append({
                 "id": f"{item['section']}-{item['subject']}-{item['id']}",
                 "section": item["section"],
@@ -144,14 +162,16 @@ def get_latest_schedule():
                 "total_credits": item.get("total_credits", item["credits"]),
                 "duration": item["duration"]
             })
+
         full_time_slots = []
         if config_id:
             config_res = supabase.table("timetable_configs").select("config_json").eq("id", config_id).execute()
             if config_res.data:
                 cfg = config_res.data[0]['config_json']
                 full_time_slots = get_solver_slots(cfg['start_time'], cfg['end_time'], cfg['duration'])
+
         if not full_time_slots:
-             full_time_slots = sorted(list(set(s["start_time"] for s in formatted_schedule if s.get("start_time"))))
+            full_time_slots = sorted(list(set(s["start_time"] for s in formatted_schedule if s.get("start_time"))))
 
         return {
             "schedule": formatted_schedule,
@@ -159,7 +179,9 @@ def get_latest_schedule():
         }
 
     except Exception as e:
+        print(f"Error in /api/latest/: {e}")
         return {"schedule": [], "time_slots": []}
+
 @app.get("/api/history/")
 def get_history():
     try:
@@ -171,9 +193,26 @@ def get_history():
 @app.get("/api/history/{run_id}")
 def get_specific_run(run_id: int):
     try:
-        slots_res = supabase.table("timetable_slots").select("*").eq("run_id", run_id).execute()
+        # ----- PAGINATION FETCH -----
+        all_slots = []
+        page_size = 1000
+        start = 0
+        while True:
+            response = supabase.table("timetable_slots") \
+                .select("*") \
+                .eq("run_id", run_id) \
+                .range(start, start + page_size - 1) \
+                .execute()
+            if not response.data:
+                break
+            all_slots.extend(response.data)
+            if len(response.data) < page_size:
+                break
+            start += page_size
+        # ----------------------------
+
         formatted_schedule = []
-        for item in slots_res.data:
+        for item in all_slots:
             formatted_schedule.append({
                 "id": f"{item['section']}-{item['subject']}-{item['id']}",
                 "section": item["section"],
@@ -187,6 +226,7 @@ def get_specific_run(run_id: int):
                 "total_credits": item.get("total_credits", item["credits"]),
                 "duration": item["duration"]
             })
+
         full_time_slots = []
         run_info = supabase.table("timetable_runs").select("config_id").eq("id", run_id).single().execute()
         if run_info.data and run_info.data.get('config_id'):
@@ -195,14 +235,17 @@ def get_specific_run(run_id: int):
             if config_res.data:
                 cfg = config_res.data[0]['config_json']
                 full_time_slots = get_solver_slots(cfg['start_time'], cfg['end_time'], cfg['duration'])
+
         if not full_time_slots:
              full_time_slots = sorted(list(set(s["start_time"] for s in formatted_schedule if s.get("start_time"))))
+
         return {
             "schedule": formatted_schedule,
             "time_slots": full_time_slots
         }
 
     except Exception as e:
+        print(f"Error in /api/history/{run_id}: {e}")
         return {"schedule": [], "time_slots": []}
 
 if __name__ == "__main__":

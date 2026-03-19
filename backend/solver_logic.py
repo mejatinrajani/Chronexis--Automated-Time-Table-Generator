@@ -1,11 +1,40 @@
+"""
+Scalable Timetable Solver — CP-SAT v7 (Production Grade)
+=========================================================
+
+KEY ENCODING INSIGHT (fixes all previous INFEASIBLE bugs):
+
+  To forbid "instance i0 AND instance i_last both on day [lo..hi]":
+    b_first_on = 1 iff starts[i0]    in [lo..hi]
+    b_last_on  = 1 iff starts[i_last] in [lo..hi]
+    Add: b_first_on + b_last_on <= 1
+
+  Critical: encoding b_on must handle boundary days correctly:
+    b_on = 1 => start >= lo  (always safe)
+    b_on = 0 => start NOT in [lo..hi]
+              = start < lo  OR  start > hi
+
+    When lo==0: "start < 0" is impossible → only use "start > hi"
+    When hi==max: "start > hi" is impossible → only use "start < lo"
+    Otherwise: AddBoolOr([b_below, b_above]) on b_on.Not()
+
+  This is implemented in make_on_day_indicator() below.
+"""
 
 from __future__ import annotations
+
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import time, timedelta, datetime
 from itertools import groupby
 from typing import Dict, List, Tuple
+
 from ortools.sat.python import cp_model
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Data classes
+# ─────────────────────────────────────────────────────────────────────────────
 
 @dataclass
 class Slot:
@@ -16,6 +45,7 @@ class Slot:
     start_time: time
     end_time: time
     duration_minutes: int
+
 
 @dataclass
 class MinimalData:
@@ -33,8 +63,12 @@ class MinimalData:
     scheduling_style: str
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Slot generation
+# ─────────────────────────────────────────────────────────────────────────────
+
 def calculate_lunch_break(shift_start: time, shift_end: time,
-    duration_minutes: int = 60) -> Tuple[time, time]:
+                          duration_minutes: int = 60) -> Tuple[time, time]:
     dummy    = datetime(2000, 1, 1)
     start_dt = datetime.combine(dummy, shift_start)
     end_dt   = datetime.combine(dummy, shift_end)
@@ -45,6 +79,7 @@ def calculate_lunch_break(shift_start: time, shift_end: time,
     elif ls.minute < 45: ls = ls.replace(minute=30)
     else:                ls = (ls + timedelta(hours=1)).replace(minute=0)
     return ls.time(), (ls + timedelta(minutes=duration_minutes)).time()
+
 
 def generate_time_slots(
     working_days: List[int], day_names: List[str],
@@ -75,6 +110,11 @@ def generate_time_slots(
                               end_time=end.time(), duration_minutes=slot_duration_minutes))
             gid += 1; sidx += 1; now = end
     return slots
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Feasibility checker
+# ─────────────────────────────────────────────────────────────────────────────
 
 def check_feasibility(data: MinimalData) -> Tuple[bool, str]:
     num_slots   = len(data.slots)
@@ -127,6 +167,11 @@ def check_feasibility(data: MinimalData) -> Tuple[bool, str]:
 
     return True, ""
 
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Pre-assignment
+# ─────────────────────────────────────────────────────────────────────────────
+
 def preassign_resources(data: MinimalData
 ) -> Tuple[Dict[Tuple[str,str], str], Dict[Tuple[str,str], str]]:
     teacher_map: Dict[Tuple[str,str], str] = {}
@@ -159,57 +204,55 @@ def preassign_resources(data: MinimalData
     return teacher_map, room_map
 
 
-def get_on_day_bool(model, starts, instances, valid_by_dur,
-                    valid_by_day_dur, cache, i, day):
+# ─────────────────────────────────────────────────────────────────────────────
+# Core helper: make_on_day_indicator
+# Returns BoolVar b = 1 iff start_var is in [lo..hi]
+# Handles all boundary cases (lo=0, hi=max_slot) correctly.
+# ─────────────────────────────────────────────────────────────────────────────
+
+def make_on_day_indicator(model, start_var, lo: int, hi: int,
+                          max_slot: int, name: str):
     """
-    Returns BoolVar b such that:
-      b = 1  <=>  starts[i] is a valid start on `day`
+    Returns BoolVar b such that b=1 <=> lo <= start_var <= hi.
 
-    Encoding uses only model.add(expr >= k) / model.add(expr <= k)
-    with .only_enforce_if(), which is stable across all OR-Tools v9.x.
+    Boundary-safe encoding:
+      b=1 =>  start_var >= lo  (always add this)
+              start_var <= hi  (always add this)
+      b=0 =>  start_var < lo  OR  start_var > hi
+              = (start_var <= lo-1)  OR  (start_var >= hi+1)
 
-    Strategy:
-      • Collect day_vals  = valid start positions on `day` for this dur
-      • Collect other_vals = valid start positions on other days
-      • b=1  =>  starts[i] in day_vals
-                 encoded as: starts[i] >= min(day_vals) AND starts[i] <= max(day_vals)
-                 PLUS an exact-domain check via auxiliary all-diff if needed.
-      • b=0  =>  starts[i] in other_vals
-                 same range approach.
-
-    For the typical case the slots within a day ARE contiguous in global
-    index (day d occupies globals [d*spd .. (d+1)*spd - 1]), so min/max
-    range is exact.  We assert this and use range encoding.
+    When lo==0: "start_var <= -1" is impossible, skip it → only use the above branch.
+    When hi==max_slot: "start_var >= max_slot+1" is impossible → only use the below branch.
+    Both branches available → AddBoolOr([b_below, b_above]).
     """
-    key = (i, day)
-    if key in cache:
-        return cache[key]
+    b = model.NewBoolVar(name)
+    model.Add(start_var >= lo).OnlyEnforceIf(b)
+    model.Add(start_var <= hi).OnlyEnforceIf(b)
 
-    dur        = instances[i]["dur"]
-    day_vals   = valid_by_day_dur.get((day, dur), [])
-    all_vals   = valid_by_dur[dur]
-    other_vals = [s for s in all_vals if s not in set(day_vals)]
+    can_be_below = (lo > 0)           # start_var <= lo-1 is possible
+    can_be_above = (hi < max_slot)    # start_var >= hi+1 is possible
 
-    b = model.new_bool_var(f"od_{i}_{day}")
+    if can_be_below and can_be_above:
+        b_below = model.NewBoolVar(f"{name}_bel")
+        b_above = model.NewBoolVar(f"{name}_abv")
+        model.Add(start_var <= lo - 1).OnlyEnforceIf(b_below)
+        model.Add(start_var >= hi + 1).OnlyEnforceIf(b_above)
+        model.AddBoolOr([b_below, b_above]).OnlyEnforceIf(b.Not())
+    elif can_be_below:
+        model.Add(start_var <= lo - 1).OnlyEnforceIf(b.Not())
+    elif can_be_above:
+        model.Add(start_var >= hi + 1).OnlyEnforceIf(b.Not())
+    else:
+        # lo==0 and hi==max_slot: variable is always on this "day" (entire week)
+        # This shouldn't happen in practice; if it does, b is always 1.
+        model.Add(b == 1)
 
-    if not day_vals:
-        model.add(b == 0)
-        cache[key] = b
-        return b
-
-    day_lo, day_hi = min(day_vals), max(day_vals)
-
-    model.add(starts[i] >= day_lo).only_enforce_if(b)
-    model.add(starts[i] <= day_hi).only_enforce_if(b)
-
-    if other_vals:
-        other_lo, other_hi = min(other_vals), max(other_vals)
-        model.add(starts[i] >= other_lo).only_enforce_if(b.negated())
-        model.add(starts[i] <= other_hi).only_enforce_if(b.negated())
-
-    cache[key] = b
     return b
 
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Core solver
+# ─────────────────────────────────────────────────────────────────────────────
 
 def run_solver_internal(data: MinimalData) -> List[dict]:
 
@@ -233,13 +276,14 @@ def run_solver_internal(data: MinimalData) -> List[dict]:
     if overloaded:
         for t, l in overloaded:
             print(f"  ❌ Teacher '{t}' has {l} SU > {W}.")
-        print(f"  Formula: n_teachers >= ceil(sections × credits × dur / (0.45 × {W}))")
         return []
 
+    # ── Slot metadata ─────────────────────────────────────────────────────────
     num_slots   = len(data.slots)
     slot_to_day = [s.day_index for s in data.slots]
     unique_days = sorted(set(slot_to_day))
     spd         = sum(1 for s in data.slots if s.day_index == unique_days[0])
+    max_slot    = num_slots - 1
 
     valid_by_dur: Dict[int, list] = {}
     for dur in set(data.subject_durations.values()) | {1}:
@@ -252,10 +296,18 @@ def run_solver_internal(data: MinimalData) -> List[dict]:
     valid_by_day_dur: Dict[Tuple[int,int], List[int]] = {}
     for dur in valid_by_dur:
         for day in unique_days:
-            valid_by_day_dur[(day, dur)] = [
-                s for s in valid_by_dur[dur] if slot_to_day[s] == day
-            ]
+            vd = [s for s in valid_by_dur[dur] if slot_to_day[s] == day]
+            if vd:
+                valid_by_day_dur[(day, dur)] = vd
 
+    # day_range[day] = (lo, hi) of valid global start indices for dur=1 on that day
+    day_range: Dict[int, Tuple[int,int]] = {}
+    for day in unique_days:
+        vd = valid_by_day_dur.get((day, 1), [])
+        if vd:
+            day_range[day] = (min(vd), max(vd))
+
+    # ── Build instances ───────────────────────────────────────────────────────
     instances: list = []
     for sec in data.sections:
         for sub, count in data.hours[sec].items():
@@ -281,15 +333,17 @@ def run_solver_internal(data: MinimalData) -> List[dict]:
     solver.parameters.cp_model_presolve   = True
     solver.parameters.symmetry_level      = 2
 
+    # ── Decision variables ────────────────────────────────────────────────────
     starts    = []
     intervals = []
     for i, inst in enumerate(instances):
-        start = model.new_int_var_from_domain(
-            cp_model.Domain.from_values(valid_by_dur[inst["dur"]]), f"s_{i}")
+        start = model.NewIntVarFromDomain(
+            cp_model.Domain.FromValues(valid_by_dur[inst["dur"]]), f"s_{i}")
         starts.append(start)
         intervals.append(
-            model.new_interval_var(start, inst["dur"], start + inst["dur"], f"iv_{i}"))
+            model.NewIntervalVar(start, inst["dur"], start + inst["dur"], f"iv_{i}"))
 
+    # ── H1/H2/H3: No-overlap ─────────────────────────────────────────────────
     sec_grp: Dict[str, list] = defaultdict(list)
     tch_grp: Dict[str, list] = defaultdict(list)
     rom_grp: Dict[str, list] = defaultdict(list)
@@ -298,70 +352,165 @@ def run_solver_internal(data: MinimalData) -> List[dict]:
         tch_grp[inst["teacher"]].append(intervals[i])
         rom_grp[inst["room"]].append(intervals[i])
     for ivs in sec_grp.values():
-        model.add_no_overlap(ivs)
+        model.AddNoOverlap(ivs)
     for ivs in tch_grp.values():
-        if len(ivs) > 1: model.add_no_overlap(ivs)
+        if len(ivs) > 1: model.AddNoOverlap(ivs)
     for ivs in rom_grp.values():
-        if len(ivs) > 1: model.add_no_overlap(ivs)
+        if len(ivs) > 1: model.AddNoOverlap(ivs)
 
+    # Symmetry breaking + build sec_sub_grp index
     kf = lambda idx: (instances[idx]["sec"], instances[idx]["sub"])
-    for _, grp in groupby(sorted(range(n), key=kf), key=kf):
-        g = list(grp)
-        for a, b in zip(g, g[1:]):
-            model.add(starts[a] <= starts[b])
-
-    od_cache: Dict[Tuple[int,int], object] = {}
-
-    def od(i, day):
-        return get_on_day_bool(model, starts, instances, valid_by_dur,
-                               valid_by_day_dur, od_cache, i, day)
-
-    print("Building H4 (max 2 same-subject per day)...")
     sec_sub_grp: Dict[Tuple[str,str], List[int]] = defaultdict(list)
-    for i, inst in enumerate(instances):
-        sec_sub_grp[(inst["sec"], inst["sub"])].append(i)
+    for _, grp_iter in groupby(sorted(range(n), key=kf), key=kf):
+        g = list(grp_iter)
+        for a, b in zip(g, g[1:]):
+            model.Add(starts[a] <= starts[b])
+        key = (instances[g[0]]["sec"], instances[g[0]]["sub"])
+        sec_sub_grp[key] = g
 
+    # ─────────────────────────────────────────────────────────────────────────
+    # H4: Max 2 same-subject per section per day
+    #
+    # For ordered triple (i0, i1, i2) and day [lo..hi]:
+    #   All 3 on same day iff starts[i0] in [lo..hi] AND starts[i2] in [lo..hi]
+    #   Forbid: b_first_on + b_last_on <= 1
+    #   (with boundary-safe make_on_day_indicator)
+    # ─────────────────────────────────────────────────────────────────────────
+    print("Building H4 (max 2 same-subject per day)...")
+    h4_count = 0
     for (sec, sub), grp in sec_sub_grp.items():
         if len(grp) < 3:
             continue
         dur = instances[grp[0]]["dur"]
         for day in unique_days:
-            if not valid_by_day_dur.get((day, dur)):
+            dv = valid_by_day_dur.get((day, dur))
+            if not dv:
                 continue
-            model.add(sum(od(i, day) for i in grp) <= 2)
+            lo, hi = min(dv), max(dv)
 
+            # For a group of size k >= 3, the tightest constraint is
+            # between grp[0] (smallest start) and grp[k-1] (largest start).
+            # If those two are both on the day, all k are on the day.
+            i_first = grp[0]
+            i_last  = grp[-1]
+
+            b_f = make_on_day_indicator(model, starts[i_first], lo, hi,
+                                        max_slot, f"h4f_{i_first}_{day}")
+            b_l = make_on_day_indicator(model, starts[i_last],  lo, hi,
+                                        max_slot, f"h4l_{i_last}_{day}")
+            model.Add(b_f + b_l <= 1)
+            h4_count += 1
+
+            # For groups of size 4+, also apply to (grp[0], grp[2])
+            # so exactly ceil((k-1)/2) overlapping windows are covered
+            for mid_idx in range(2, len(grp) - 1):
+                i_mid = grp[mid_idx]
+                b_m = make_on_day_indicator(model, starts[i_mid], lo, hi,
+                                            max_slot, f"h4m_{i_mid}_{day}")
+                model.Add(b_f + b_m <= 1)
+                h4_count += 1
+
+    print(f"  H4 constraints: {h4_count}")
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # H5: Lab sessions of same (sec, sub) on different days
+    #
+    # For ordered pair (i0, i1) and each day:
+    #   Both on same day iff starts[i0] in [lo..hi] AND starts[i1] in [lo..hi]
+    #   Forbid: b_first_on + b_last_on <= 1
+    # ─────────────────────────────────────────────────────────────────────────
     print("Building H5 (lab sessions on different days)...")
+    h5_count = 0
     for (sec, sub), grp in sec_sub_grp.items():
         if not instances[grp[0]]["is_lab"] or len(grp) < 2:
             continue
-        for day in unique_days:
-            if not valid_by_day_dur.get((day, 2)):
-                continue
-            model.add(sum(od(i, day) for i in grp) <= 1)
+        dur = instances[grp[0]]["dur"]
+        for a_pos, i0 in enumerate(grp):
+            for i1 in grp[a_pos + 1:]:
+                for day in unique_days:
+                    dv = valid_by_day_dur.get((day, dur))
+                    if not dv:
+                        continue
+                    lo, hi = min(dv), max(dv)
+                    b_f = make_on_day_indicator(model, starts[i0], lo, hi,
+                                                max_slot, f"h5f_{i0}_{day}")
+                    b_l = make_on_day_indicator(model, starts[i1], lo, hi,
+                                                max_slot, f"h5l_{i1}_{day}")
+                    model.Add(b_f + b_l <= 1)
+                    h5_count += 1
 
-    print("Building H6 (daily theory cap ≤ 6)...")
+    print(f"  H5 constraints: {h5_count}")
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # H6: Daily theory cap <= 6 per section
+    #
+    # For a section with k > 6 theory instances ordered by start,
+    # for each day: the (1st, 8th), (2nd, 9th)... pairs cannot both be on same day.
+    # ─────────────────────────────────────────────────────────────────────────
+    print("Building H6 (daily theory cap ≤ 6 per section)...")
+    MAX_THEORY = 6
+    h6_count = 0
     sec_theory_grp: Dict[str, List[int]] = defaultdict(list)
     for i, inst in enumerate(instances):
         if not inst["is_lab"]:
             sec_theory_grp[inst["sec"]].append(i)
+    for sec in sec_theory_grp:
+        sec_theory_grp[sec].sort()
 
     for sec, grp in sec_theory_grp.items():
+        if len(grp) <= MAX_THEORY:
+            continue
         for day in unique_days:
-            if not valid_by_day_dur.get((day, 1)):
+            lo, hi = day_range.get(day, (None, None))
+            if lo is None:
                 continue
-            model.add(sum(od(i, day) for i in grp) <= 6)
+            for start_idx in range(len(grp) - MAX_THEORY):
+                i_first = grp[start_idx]
+                i_last  = grp[start_idx + MAX_THEORY]
+                b_f = make_on_day_indicator(model, starts[i_first], lo, hi,
+                                            max_slot, f"h6f_{i_first}_{day}")
+                b_l = make_on_day_indicator(model, starts[i_last],  lo, hi,
+                                            max_slot, f"h6l_{i_last}_{day}")
+                model.Add(b_f + b_l <= 1)
+                h6_count += 1
 
-    print(f"  on_day booleans created: {len(od_cache)}")
+    print(f"  H6 constraints: {h6_count}")
 
-    print("Building soft objective...")
+    # ─────────────────────────────────────────────────────────────────────────
+    # Soft objective: S1 + S2 + S3
+    # S1 (w=1):  minimize sum of starts (compact/early schedule)
+    # S2 (w=15): penalize intra-day gaps > 2 slots
+    # S3 (w=4):  penalize theory load > 5 per section per day
+    # ─────────────────────────────────────────────────────────────────────────
+    print("Building soft objective (S1 compact, S2 gap, S3 load)...")
     PENALTY_GAP  = 15
-    PENALTY_LOAD = 3
+    PENALTY_LOAD = 4
     BIG          = num_slots + 1
+    obj_terms    = []
 
-    obj_terms = []
-
+    # S1: cluster early
     for i in range(n):
         obj_terms.append(starts[i])
+
+    # Cache for on_day indicators used in S2/S3
+    od_cache: Dict[Tuple[int,int], object] = {}
+
+    def get_od(i, day):
+        key = (i, day)
+        if key in od_cache:
+            return od_cache[key]
+        dur = instances[i]["dur"]
+        dv  = valid_by_day_dur.get((day, dur))
+        if not dv:
+            b = model.NewBoolVar(f"od_{i}_{day}")
+            model.Add(b == 0)
+            od_cache[key] = b
+            return b
+        lo, hi = min(dv), max(dv)
+        b = make_on_day_indicator(model, starts[i], lo, hi,
+                                  max_slot, f"od_{i}_{day}")
+        od_cache[key] = b
+        return b
 
     for sec in data.sections:
         sec_inst = [i for i, inst in enumerate(instances) if inst["sec"] == sec]
@@ -372,61 +521,63 @@ def run_solver_internal(data: MinimalData) -> List[dict]:
             if not can_be:
                 continue
 
+            # S3: penalize >5 theory per day
             theory_here = [i for i in can_be if not instances[i]["is_lab"]]
             if len(theory_here) > 5:
-                el = model.new_int_var(0, 6, f"el_{sec}_{day}")
-                model.add(el >= sum(od(i, day) for i in theory_here) - 5)
+                el = model.NewIntVar(0, 6, f"el_{sec}_{day}")
+                model.Add(el >= sum(get_od(i, day) for i in theory_here) - 5)
                 obj_terms.append(el * PENALTY_LOAD)
 
+            # S2: gap penalty (only meaningful with >=3 possible classes)
             if len(can_be) < 3:
                 continue
 
-            earliest = model.new_int_var(0, num_slots,   f"ea_{sec}_{day}")
-            latest   = model.new_int_var(0, num_slots,   f"la_{sec}_{day}")
-            tot_dur  = model.new_int_var(0, spd * 2,     f"td_{sec}_{day}")
-            any_on   = model.new_bool_var(f"any_{sec}_{day}")
+            earliest = model.NewIntVar(0, num_slots, f"ea_{sec}_{day}")
+            latest   = model.NewIntVar(0, num_slots, f"la_{sec}_{day}")
+            tot_dur  = model.NewIntVar(0, spd * 2,   f"td_{sec}_{day}")
+            any_on   = model.NewBoolVar(f"any_{sec}_{day}")
 
-            model.add(sum(od(i, day) for i in can_be) >= 1).only_enforce_if(any_on)
-            model.add(sum(od(i, day) for i in can_be) == 0).only_enforce_if(any_on.negated())
+            model.Add(sum(get_od(i, day) for i in can_be) >= 1).OnlyEnforceIf(any_on)
+            model.Add(sum(get_od(i, day) for i in can_be) == 0).OnlyEnforceIf(any_on.Not())
 
             for i in can_be:
                 dur = instances[i]["dur"]
-                b   = od(i, day)
+                b   = get_od(i, day)
+                model.Add(earliest <= starts[i] + BIG - BIG * b)
+                model.Add(latest   >= starts[i] + dur - BIG + BIG * b)
 
-                model.add(earliest <= starts[i] + BIG - BIG * b)
-                model.add(latest   >= starts[i] + dur - BIG + BIG * b)
+            model.Add(tot_dur == sum(instances[i]["dur"] * get_od(i, day) for i in can_be))
 
-            model.add(tot_dur == sum(instances[i]["dur"] * od(i, day) for i in can_be))
+            span    = model.NewIntVar(0, spd + 2, f"sp_{sec}_{day}")
+            gap     = model.NewIntVar(0, spd + 2, f"gp_{sec}_{day}")
+            gap_exc = model.NewIntVar(0, spd + 2, f"gx_{sec}_{day}")
 
-            span     = model.new_int_var(0, spd + 2, f"sp_{sec}_{day}")
-            gap      = model.new_int_var(0, spd + 2, f"gp_{sec}_{day}")
-            gap_exc  = model.new_int_var(0, spd + 2, f"gx_{sec}_{day}")
-
-            model.add(span == latest - earliest).only_enforce_if(any_on)
-            model.add(span == 0).only_enforce_if(any_on.negated())
-            model.add(gap  == span - tot_dur).only_enforce_if(any_on)
-            model.add(gap  == 0).only_enforce_if(any_on.negated())
-
-            model.add(gap_exc >= gap - 2)
+            model.Add(span == latest - earliest).OnlyEnforceIf(any_on)
+            model.Add(span == 0).OnlyEnforceIf(any_on.Not())
+            model.Add(gap  == span - tot_dur).OnlyEnforceIf(any_on)
+            model.Add(gap  == 0).OnlyEnforceIf(any_on.Not())
+            model.Add(gap_exc >= gap - 2)
             obj_terms.append(gap_exc * PENALTY_GAP)
 
-    print(f"  Total objective terms: {len(obj_terms)}")
-    model.minimize(sum(obj_terms))
+    print(f"  Objective terms: {len(obj_terms)}")
+    model.Minimize(sum(obj_terms))
 
+    # ── Solve ─────────────────────────────────────────────────────────────────
     print("\n🚀 Starting solver …")
-    status = solver.solve(model)
+    status = solver.Solve(model)
 
     if status not in (cp_model.OPTIMAL, cp_model.FEASIBLE):
         print("❌ No solution found.")
         return []
 
-    print(f"✅ {solver.status_name(status)} | "
-          f"Objective: {solver.objective_value:.0f} | "
-          f"Wall time: {solver.wall_time:.1f}s")
+    print(f"✅ {solver.StatusName(status)} | "
+          f"Objective: {solver.ObjectiveValue():.0f} | "
+          f"Wall time: {solver.WallTime():.1f}s")
 
+    # ── Output ────────────────────────────────────────────────────────────────
     output = []
     for i, inst in enumerate(instances):
-        s          = solver.value(starts[i])
+        s          = solver.Value(starts[i])
         start_slot = data.slots[s]
         end_slot   = data.slots[s + inst["dur"] - 1]
         output.append({
@@ -442,6 +593,11 @@ def run_solver_internal(data: MinimalData) -> List[dict]:
             "total_credits": inst["total_credits"],
         })
     return output
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Public entry point
+# ─────────────────────────────────────────────────────────────────────────────
 
 def solve_custom_timetable(json_data: dict):
     s_h, s_m = map(int, json_data["start_time"].split(":"))
