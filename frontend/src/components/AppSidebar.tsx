@@ -6,6 +6,7 @@ const links = [
   { to: "/dashboard", icon: LayoutDashboard, label: "Dashboard" },
   { to: "/student-timetable", icon: Calendar, label: "Student's Timetable" },
   { to: "/teacher-timetable", icon: Calendar, label: "Teacher's Timetable" },
+  { to: "/room's-schedule", icon: Calendar, label: "Room's Schedule" },
   { to: "/generate", icon: Grid3X3, label: "Generate" },
   { to: "/generate-with-excel", icon: Grid3X3, label: "Generate with Excel" },
   { to: "/profile", icon: User, label: "Profile" },
