@@ -1,3 +1,5 @@
+# this file perfectly generates the compact time-table
+
 from __future__ import annotations
 from collections import defaultdict
 from dataclasses import dataclass

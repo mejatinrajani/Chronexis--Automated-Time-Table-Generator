@@ -1,0 +1,85 @@
+curl -X POST http://127.0.0.1:8000/api/generate/ \
+  -H "Content-Type: application/json" \
+  -d '{
+    "start_time": "08:00",
+    "end_time": "17:30",
+    "duration": 50,
+
+    "sections": [
+      "A1","A2","A3","A4","A5","A6","A7","A8","A9",
+      "B1","B2","B3","B4","B5","B6","B7","B8","B9",
+      "C1","C2","C3","C4","C5","C6","C7","C8","C9",
+      "D1","D2","D3","D4","D5","D6","D7","D8","D9"
+    ],
+
+    "subjects": [
+      {"name": "Mathematics",       "credits": 4, "is_lab": false},
+      {"name": "Physics",           "credits": 4, "is_lab": false},
+      {"name": "Chemistry",         "credits": 4, "is_lab": false},
+      {"name": "DSA",               "credits": 4, "is_lab": false},
+      {"name": "DBMS",              "credits": 3, "is_lab": false},
+      {"name": "Operating Systems", "credits": 3, "is_lab": false},
+      {"name": "Physics Lab",       "credits": 2, "is_lab": true},
+      {"name": "Chemistry Lab",     "credits": 2, "is_lab": true},
+      {"name": "OS Lab",            "credits": 2, "is_lab": true}
+    ],
+
+    "faculty": [
+      {"name": "Math_T1",  "subjects": ["Mathematics"]},
+      {"name": "Math_T2",  "subjects": ["Mathematics"]},
+      {"name": "Math_T3",  "subjects": ["Mathematics"]},
+      {"name": "Math_T4",  "subjects": ["Mathematics"]},
+      {"name": "Math_T5",  "subjects": ["Mathematics"]},
+
+      {"name": "Phy_T1",   "subjects": ["Physics"]},
+      {"name": "Phy_T2",   "subjects": ["Physics"]},
+      {"name": "Phy_T3",   "subjects": ["Physics"]},
+      {"name": "Phy_T4",   "subjects": ["Physics"]},
+      {"name": "Phy_T5",   "subjects": ["Physics"]},
+
+      {"name": "Chem_T1",  "subjects": ["Chemistry"]},
+      {"name": "Chem_T2",  "subjects": ["Chemistry"]},
+      {"name": "Chem_T3",  "subjects": ["Chemistry"]},
+      {"name": "Chem_T4",  "subjects": ["Chemistry"]},
+      {"name": "Chem_T5",  "subjects": ["Chemistry"]},
+
+      {"name": "DSA_T1",   "subjects": ["DSA"]},
+      {"name": "DSA_T2",   "subjects": ["DSA"]},
+      {"name": "DSA_T3",   "subjects": ["DSA"]},
+      {"name": "DSA_T4",   "subjects": ["DSA"]},
+      {"name": "DSA_T5",   "subjects": ["DSA"]},
+
+      {"name": "DBMS_T1",  "subjects": ["DBMS"]},
+      {"name": "DBMS_T2",  "subjects": ["DBMS"]},
+      {"name": "DBMS_T3",  "subjects": ["DBMS"]},
+      {"name": "DBMS_T4",  "subjects": ["DBMS"]},
+
+      {"name": "OS_T1",    "subjects": ["Operating Systems"]},
+      {"name": "OS_T2",    "subjects": ["Operating Systems"]},
+      {"name": "OS_T3",    "subjects": ["Operating Systems"]},
+      {"name": "OS_T4",    "subjects": ["Operating Systems"]},
+
+      {"name": "PhyLab_T1",  "subjects": ["Physics Lab"]},
+      {"name": "PhyLab_T2",  "subjects": ["Physics Lab"]},
+      {"name": "PhyLab_T3",  "subjects": ["Physics Lab"]},
+      {"name": "PhyLab_T4",  "subjects": ["Physics Lab"]},
+      {"name": "PhyLab_T5",  "subjects": ["Physics Lab"]},
+
+      {"name": "ChemLab_T1",  "subjects": ["Chemistry Lab"]},
+      {"name": "ChemLab_T2",  "subjects": ["Chemistry Lab"]},
+      {"name": "ChemLab_T3",  "subjects": ["Chemistry Lab"]},
+      {"name": "ChemLab_T4",  "subjects": ["Chemistry Lab"]},
+      {"name": "ChemLab_T5",  "subjects": ["Chemistry Lab"]},
+
+      {"name": "OSLab_T1",   "subjects": ["OS Lab"]},
+      {"name": "OSLab_T2",   "subjects": ["OS Lab"]},
+      {"name": "OSLab_T3",   "subjects": ["OS Lab"]},
+      {"name": "OSLab_T4",   "subjects": ["OS Lab"]},
+      {"name": "OSLab_T5",   "subjects": ["OS Lab"]}
+    ],
+
+    "rooms": [
+      {"block": "A-Block", "start": 101, "end": 136},
+      {"block": "LAB",     "start": 401, "end": 425}
+    ]
+  }'
