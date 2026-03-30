@@ -9,6 +9,7 @@ const links = [
   { to: "/room's-schedule", icon: Calendar, label: "Room's Schedule" },
   { to: "/generate", icon: Grid3X3, label: "Generate" },
   { to: "/generate-with-excel", icon: Grid3X3, label: "Generate with Excel" },
+  { to: "/validate-timetable", icon: Grid3X3, label: "Validate Exsisting TimeTable" },
   { to: "/profile", icon: User, label: "Profile" },
 ];
 
