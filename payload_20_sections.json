@@ -1,0 +1,32 @@
+{
+  "start_time": "08:00",
+  "end_time": "18:00",
+  "duration": 50,
+  "sections": ["A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M", "N", "O", "P", "Q", "R", "S", "T"],
+  "subjects": [
+    {"name": "Mathematics", "is_lab": false, "credits": 4},
+    {"name": "Physics", "is_lab": false, "credits": 3},
+    {"name": "Chemistry", "is_lab": false, "credits": 3},
+    {"name": "English", "is_lab": false, "credits": 2},
+    {"name": "Data Science", "is_lab": false, "credits": 3},
+    {"name": "OOP", "is_lab": false, "credits": 3},
+    {"name": "Physics Lab", "is_lab": true, "credits": 2},
+    {"name": "Chemistry Lab", "is_lab": true, "credits": 2},
+    {"name": "DS Lab", "is_lab": true, "credits": 1}
+  ],
+  "rooms": [
+    {"block": "THEORY", "start": 101, "end": 116},
+    {"block": "LAB", "start": 1, "end": 48}
+  ],
+  "faculty": [
+    {"name": "Dr. Smith", "subjects": ["Mathematics"]},
+    {"name": "Dr. Johnson", "subjects": ["Physics"]},
+    {"name": "Dr. Williams", "subjects": ["Chemistry"]},
+    {"name": "Prof. Brown", "subjects": ["English"]},
+    {"name": "Prof. Davis", "subjects": ["Data Science"]},
+    {"name": "Prof. Miller", "subjects": ["OOP"]},
+    {"name": "Lab Tech A", "subjects": ["Physics Lab"]},
+    {"name": "Lab Tech B", "subjects": ["Chemistry Lab"]},
+    {"name": "Lab Tech C", "subjects": ["DS Lab"]}
+  ]
+}

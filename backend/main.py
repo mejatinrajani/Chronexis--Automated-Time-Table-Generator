@@ -99,8 +99,8 @@ def generate_schedule(payload: GeneratePayload):
                 "subject": item["subject"],
                 "teacher": item["teacher"],
                 "room": item["room"],
-                "credits": item["credits"],
-                "total_credits": item.get("total_credits", item["credits"]),
+                "credits": item.get("total_credits", 1),
+                "total_credits": item.get("total_credits", 1),
                 "duration": item["duration"]
             })
         

@@ -54,19 +54,26 @@ const TimetableGrid = ({ section, grid, timeSlots, breakTimes = [], onGridChange
   }, [grid, section, onGridChange, onDropFromClipboard]);
 
   return (
-    <div className="overflow-x-hidden pb-4">
-      <table className="w-[2100px] border-collapse">
+    <div className="overflow-x-auto pb-4 w-full"> 
+      {/* 
+        table-fixed forces equal column widths.
+        min-w-[1200px] ensures it scrolls on small screens rather than crushing columns.
+      */}
+      <table className="w-full min-w-[3000px] table-fixed border-collapse">
         <thead>
           <tr>
-            <th className="border border-border bg-secondary p-3 text-left text-[20px] font-medium uppercase tracking-widest text-muted-foreground w-24 sticky left-0 z-10 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)]">
+            {/* Set a specific width for the Days column */}
+            <th className="w-32 border border-border bg-secondary p-3 text-left text-[16px] md:text-[20px] font-medium uppercase tracking-widest text-muted-foreground sticky left-0 z-10 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)]">
               {section}
             </th>
+            
             {timeSlots.map((time) => {
                const isBreak = breakTimes.includes(time);
                return (
                 <th key={time} className={cn(
-                    "border border-border bg-secondary p-3 text-center text-[20px] font-medium uppercase tracking-widest text-muted-foreground w-[590px] max-w-[590px]",
-                    isBreak && "bg-secondary/50 text-muted-foreground/50"
+                    // Removed dynamic max-w, let table-fixed handle the equal sizing
+                    "border border-border bg-secondary p-3 text-center text-[16px] md:text-[20px] font-medium uppercase tracking-widest text-muted-foreground",
+                    isBreak && "bg-secondary/50 text-muted-foreground/50 w-24" // Make lunch column slightly thinner
                 )}>
                   {isBreak ? "LUNCH" : formatSlotRange(time)}
                 </th>
@@ -77,7 +84,7 @@ const TimetableGrid = ({ section, grid, timeSlots, breakTimes = [], onGridChange
         <tbody>
           {DAYS.map((day, dayIndex) => (
             <tr key={day}>
-              <td className="border border-border bg-secondary/50 p-3 text-[20px] font-medium text-muted-foreground sticky left-0 z-10 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)]">
+              <td className="border border-border bg-secondary/50 p-3 text-[16px] md:text-[20px] font-medium text-muted-foreground sticky left-0 z-10 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)]">
                 {day}
               </td>
               
@@ -85,7 +92,6 @@ const TimetableGrid = ({ section, grid, timeSlots, breakTimes = [], onGridChange
                 const isBreak = breakTimes.includes(time);
                 
                 if (isBreak) {
-                
                     if (dayIndex === 0) {
                         return (
                             <td 
@@ -115,12 +121,12 @@ const TimetableGrid = ({ section, grid, timeSlots, breakTimes = [], onGridChange
                     onDragLeave={() => setDragOver(null)}
                     onDrop={() => handleDrop(day, time)}
                     className={cn(
-                      "border border-border p-1.5 transition-all duration-200 h-24 align-top cell-hover",
+                      "border border-border p-1.5 transition-all duration-200 h-28 align-top cell-hover relative", // Added relative
                       isOver && "drop-zone-active bg-primary/10"
                     )}
                   >
                     {slot ? (
-                      <div className="h-full">
+                      <div className="h-full w-full absolute inset-0 p-1.5"> {/* Absolute fill ensures the card takes exact cell boundaries */}
                          <DraggableSlot
                             slot={slot}
                             onDragStart={(e, s) => handleDragStart(e, s, day, time)}

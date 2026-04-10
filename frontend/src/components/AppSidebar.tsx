@@ -1,4 +1,4 @@
-import { Calendar, Settings, Grid3X3, User, Search, LogOut, LayoutDashboard } from "lucide-react";
+import { Calendar, Settings, Grid3X3, Check, User, Search, LogOut, LayoutDashboard } from "lucide-react";
 import { NavLink, useLocation } from "react-router-dom";
 import { cn } from "@/lib/utils";
 
@@ -9,7 +9,7 @@ const links = [
   { to: "/room's-schedule", icon: Calendar, label: "Room's Schedule" },
   { to: "/generate", icon: Grid3X3, label: "Generate" },
   { to: "/generate-with-excel", icon: Grid3X3, label: "Generate with Excel" },
-  { to: "/validate-timetable", icon: Grid3X3, label: "Validate Exsisting TimeTable" },
+  { to: "/validate-timetable", icon: Check, label: "Validate Exsisting TimeTable" },
   { to: "/profile", icon: User, label: "Profile" },
 ];
 
