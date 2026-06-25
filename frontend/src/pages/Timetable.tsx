@@ -50,7 +50,7 @@ const Timetable = () => {
     const fetchSchedule = async () => {
       setLoading(true);
       try {
-        const response = await fetch(apiUrl("/api/latest/"));
+        const response = await fetch(apiUrl("/api/latest"));
         const result = await response.json();
         
         const data: APISlot[] = Array.isArray(result) ? result : result.schedule; 

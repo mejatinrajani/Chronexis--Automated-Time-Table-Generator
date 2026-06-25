@@ -33,7 +33,7 @@ const HistoryModal = ({ open, onClose, onLoadRun }: HistoryModalProps) => {
   const fetchHistory = async () => {
     setLoadingList(true);
     try {
-      const res = await fetch(apiUrl("/api/history/"));
+      const res = await fetch(apiUrl("/api/history"));
       const data = await res.json();
       setHistory(data);
     } catch (e) {
