@@ -16,15 +16,9 @@ DEFAULT_ORIGINS = [
     "https://techzeno.vercel.app",
 ]
 
-
-def get_allowed_origins() -> List[str]:
-    env_origins = os.getenv("ALLOWED_ORIGINS", "")
-    configured_origins = [origin.strip().rstrip("/") for origin in env_origins.split(",") if origin.strip()]
-    return list(dict.fromkeys(DEFAULT_ORIGINS + configured_origins))
-
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=get_allowed_origins(),
+    allow_origins=["https://techzeno.vercel.app", "http://localhost:8080"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
