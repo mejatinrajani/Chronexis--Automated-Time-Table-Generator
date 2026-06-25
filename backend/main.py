@@ -18,7 +18,7 @@ DEFAULT_ORIGINS = [
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["https://techzeno.vercel.app", "http://localhost:8080"],
+    allow_origins=["https://chronexis01.vercel.app", "http://localhost:8080"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
