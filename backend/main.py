@@ -4,7 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List, Optional
 from datetime import datetime, time
-import solver_logic
+from backend import solver_logic
 from database import supabase
 
 app = FastAPI()
