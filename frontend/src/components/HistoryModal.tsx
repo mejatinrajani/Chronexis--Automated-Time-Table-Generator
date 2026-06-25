@@ -3,6 +3,7 @@ import Modal from "@/components/Modal";
 import AppButton from "@/components/AppButton";
 import { Clock, Calendar, CheckCircle2, Loader2 } from "lucide-react";
 import { APISlot } from "@/utils/dataMapper";
+import { apiUrl } from "@/lib/api";
 
 // Matches your Supabase "timetable_runs" table
 interface HistoryRun {
@@ -32,7 +33,7 @@ const HistoryModal = ({ open, onClose, onLoadRun }: HistoryModalProps) => {
   const fetchHistory = async () => {
     setLoadingList(true);
     try {
-      const res = await fetch("http://localhost:8000/api/history/");
+      const res = await fetch(apiUrl("/api/history/"));
       const data = await res.json();
       setHistory(data);
     } catch (e) {
@@ -46,7 +47,7 @@ const HistoryModal = ({ open, onClose, onLoadRun }: HistoryModalProps) => {
   const handleLoad = async (runId: number) => {
     setLoadingId(runId);
     try {
-      const res = await fetch(`http://localhost:8000/api/history/${runId}`);
+      const res = await fetch(apiUrl(`/api/history/${runId}`));
       const result = await res.json();
       
       // NEW: Handle the object response

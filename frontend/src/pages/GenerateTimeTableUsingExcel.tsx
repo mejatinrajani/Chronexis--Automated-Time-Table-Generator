@@ -6,6 +6,7 @@ import InputField from "@/components/InputField";
 import AppButton from "@/components/AppButton";
 import { LayoutGrid, Layers, Zap, Upload, FileSpreadsheet, AlertCircle, Check, X } from "lucide-react";
 import { toast } from "sonner";
+import { apiUrl } from "@/lib/api";
 
 interface Subject {
   name: string;
@@ -155,7 +156,7 @@ const GenerateTimetableUsingExcel = () => {
 
     setLoading(true);
     try {
-        const response = await fetch("http://localhost:8000/api/generate/", {
+        const response = await fetch(apiUrl("/api/generate/"), {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(payload)

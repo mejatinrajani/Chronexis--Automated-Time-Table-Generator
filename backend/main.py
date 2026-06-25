@@ -1,4 +1,5 @@
 import uvicorn
+import os
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -9,11 +10,21 @@ from backend.database import supabase
 
 app = FastAPI()
 
-origins = ["http://localhost:8080", "*"]
+DEFAULT_ORIGINS = [
+    "http://localhost:5173",
+    "http://localhost:8080",
+    "https://techzeno.vercel.app",
+]
+
+
+def get_allowed_origins() -> List[str]:
+    env_origins = os.getenv("ALLOWED_ORIGINS", "")
+    configured_origins = [origin.strip().rstrip("/") for origin in env_origins.split(",") if origin.strip()]
+    return list(dict.fromkeys(DEFAULT_ORIGINS + configured_origins))
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,
+    allow_origins=get_allowed_origins(),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

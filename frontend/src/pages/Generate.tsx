@@ -5,6 +5,7 @@ import InputField from "@/components/InputField";
 import AppButton from "@/components/AppButton";
 import { Plus, Trash2, LayoutGrid, Users, BookOpen, Layers, Check, X, Zap } from "lucide-react";
 import { toast } from "sonner";
+import { apiUrl } from "@/lib/api";
 
 // --- Types ---
 interface Subject {
@@ -102,7 +103,7 @@ const Generate = () => {
 
     setLoading(true);
     try {
-        const response = await fetch("http://localhost:8000/api/generate/", {
+        const response = await fetch(apiUrl("/api/generate/"), {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(payload)

@@ -13,6 +13,7 @@ import { SlotData } from "@/components/DraggableSlot";
 import { APISlot, formatTimeDisplay } from "@/utils/dataMapper";
 import { mapApiToTeacherGrid } from "@/utils/teacherMapper";
 import { exportTimetableToExcel } from "@/utils/excelExport";
+import { apiUrl } from "@/lib/api";
 
 const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"];
 
@@ -46,7 +47,7 @@ const TeacherTimetable = () => {
     const fetchSchedule = async () => {
       setLoading(true);
       try {
-        const response = await fetch("http://localhost:8000/api/latest/");
+        const response = await fetch(apiUrl("/api/latest/"));
         const result = await response.json();
         
         const data: APISlot[] = Array.isArray(result) ? result : result.schedule; 
