@@ -5,7 +5,7 @@ from pydantic import BaseModel
 from typing import List, Optional
 from datetime import datetime, time
 from backend import solver_logic
-from database import supabase
+from backend.database import supabase
 
 app = FastAPI()
 
